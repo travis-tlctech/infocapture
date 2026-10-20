@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: Install Chromium and ffmpeg for browser tests
+        run: |
+          npx playwright install --with-deps chromium
+          sudo apt-get install -y ffmpeg
+      - name: Browser tests (fake camera, simulated Microsoft Graph)
+        run: npm run test:e2e
+        env:
+          CI: 'true'
+
+  card-reader:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/card-reader
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm test
+      - run: npm run build

@@ -1,0 +1,121 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  InfoCapture card reader. A Lambda function URL that reads business card and
+  badge photos with Claude. Only accepts Microsoft 365 access tokens issued by
+  your Entra tenant for the InfoCapture app registration.
+
+Parameters:
+  TenantId:
+    Type: String
+    Description: Entra tenant (directory) ID
+    AllowedPattern: '[0-9a-fA-F-]{36}'
+  ClientId:
+    Type: String
+    Description: Application (client) ID of the InfoCapture app registration
+    AllowedPattern: '[0-9a-fA-F-]{36}'
+  AllowedOrigins:
+    Type: String
+    Description: Comma-separated web origins allowed to call the reader (where the app is hosted)
+    Default: https://travis-tlctech.github.io
+  ApiKeyParameterName:
+    Type: String
+    Description: SSM Parameter Store SecureString holding the Anthropic API key
+    Default: /infocapture/anthropic-api-key
+    AllowedPattern: '/.+'
+  ClaudeModel:
+    Type: String
+    Default: claude-opus-5-5
+  ClaudeEffort:
+    Type: String
+    Default: low
+    AllowedValues: [low, medium, high]
+  ReservedConcurrency:
+    Type: Number
+    Description: Cap on simultaneous card reads (0 = no cap). A cap bounds API spend.
+    Default: 0
+    MinValue: 0
+
+Conditions:
+  CapConcurrency: !Not [!Equals [!Ref ReservedConcurrency, 0]]
+
+Resources:
+  CardReaderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: read-anthropic-key
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ApiKeyParameterName}
+
+  CardReaderFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: InfoCapture card reader (Claude)
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.handler
+      Code: ./dist
+      MemorySize: 512
+      Timeout: 75
+      Role: !GetAtt CardReaderRole.Arn
+      ReservedConcurrentExecutions: !If [CapConcurrency, !Ref ReservedConcurrency, !Ref AWS::NoValue]
+      Environment:
+        Variables:
+          TENANT_ID: !Ref TenantId
+          CLIENT_ID: !Ref ClientId
+          API_KEY_PARAMETER: !Ref ApiKeyParameterName
+          CLAUDE_MODEL: !Ref ClaudeModel
+          CLAUDE_EFFORT: !Ref ClaudeEffort
+
+  CardReaderLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${CardReaderFunction}
+      RetentionInDays: 30
+
+  CardReaderUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt CardReaderFunction.Arn
+      # The function checks the Microsoft 365 token itself, so the URL is
+      # public at the AWS level.
+      AuthType: NONE
+      Cors:
+        AllowOrigins: !Split [',', !Ref AllowedOrigins]
+        AllowMethods: [POST]
+        AllowHeaders: [authorization, content-type]
+        MaxAge: 86400
+
+  # Function URLs with AuthType NONE need both permissions. The second is
+  # limited to calls that arrive through the function URL.
+  UrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CardReaderFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+      FunctionUrlAuthType: NONE
+  FunctionInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CardReaderFunction
+      Action: lambda:InvokeFunction
+      Principal: '*'
+      InvokedViaFunctionUrl: true
+
+Outputs:
+  CardReaderUrl:
+    Description: Put this in app/config.js as cardReaderUrl
+    Value: !GetAtt CardReaderUrl.FunctionUrl

@@ -1,0 +1,7 @@
+node_modules/
+backend/card-reader/dist/
+backend/card-reader/packaged.yaml
+test-results/
+playwright-report/
+tests/.fixtures/
+.DS_Store

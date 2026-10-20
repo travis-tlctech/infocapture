@@ -1,0 +1,22 @@
+{
+  "name": "infocapture-card-reader",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AWS Lambda that reads business cards and badge photos with Claude for InfoCapture.",
+  "type": "module",
+  "main": "src/index.mjs",
+  "scripts": {
+    "build": "esbuild src/index.mjs --bundle --platform=node --target=node22 --format=esm --external:@aws-sdk/* --outfile=dist/index.mjs --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.132.1",
+    "jose": "6.2.12"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10"
+  }
+}
