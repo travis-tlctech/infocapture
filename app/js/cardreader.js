@@ -43,15 +43,15 @@ async function call(url, token, payload, timeoutMs = 80000) {
   return data;
 }
 
+// Both return the reader's reply: { contacts: [{ fields, confidence, unsure }],
+// unreadable }. See applyReading() in fields.js.
 export async function readCardPhoto(url, token, blob) {
   const image = await blobToBase64(blob);
-  const data = await call(url, token, { action: 'card', mediaType: blob.type || 'image/jpeg', image });
-  return data.fields ?? {};
+  return call(url, token, { action: 'card', mediaType: blob.type || 'image/jpeg', image });
 }
 
 export async function readQrText(url, token, text) {
-  const data = await call(url, token, { action: 'text', text: text.slice(0, 4000) });
-  return data.fields ?? {};
+  return call(url, token, { action: 'text', text: text.slice(0, 4000) });
 }
 
 export async function pingCardReader(url, token) {

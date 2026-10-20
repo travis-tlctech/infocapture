@@ -51,3 +51,29 @@ test('fillBlanks never overwrites typed values', () => {
   assert.equal(target.company, 'Acme');
   assert.deepEqual(changed.sort(), ['company', 'lastName']);
 });
+
+test('applyReading fills blanks, keeps unsure fields it filled, and holds extra people', async () => {
+  const { applyReading } = await import('../../app/js/fields.js');
+  const r = { firstName: '', lastName: '', title: 'Typed title', email: '' };
+  const changed = applyReading(r, {
+    contacts: [
+      { fields: { firstName: 'Priya', lastName: 'Raman', title: 'VP', email: 'p@x.example' }, confidence: 0.5, unsure: ['title', 'email'] },
+      { fields: { firstName: 'Sam', lastName: 'Lee' }, confidence: 0.9, unsure: [] },
+    ],
+  });
+  assert.deepEqual(changed.sort(), ['email', 'firstName', 'lastName']);
+  assert.equal(r.title, 'Typed title');
+  assert.deepEqual(r.unsureKeys, ['email'], 'title was typed, so it is not flagged');
+  assert.equal(r.readConfidence, 0.5);
+  assert.equal(r.extraContacts.length, 1);
+  assert.equal(r.extraContacts[0].fields.firstName, 'Sam');
+  assert.equal(r.parseStatus, 'done');
+
+  const empty = {};
+  assert.deepEqual(applyReading(empty, { contacts: [], unreadable: 'declined' }), []);
+  assert.equal(empty.parseStatus, 'unreadable');
+
+  const old = { firstName: '' };
+  applyReading(old, { fields: { firstName: 'Legacy' } });
+  assert.equal(old.firstName, 'Legacy', 'a plain { fields } reply still works');
+});

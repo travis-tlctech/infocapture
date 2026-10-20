@@ -67,6 +67,30 @@ export function fillBlanks(target, incoming) {
   return changed;
 }
 
+// Applies a card reader reply to a stored record. The first person on the
+// card fills blank fields; fields the reader was unsure of are remembered so
+// the form can mark them for checking; anyone else on the card is kept so
+// the form can offer to add them as separate contacts. Returns the keys
+// that were filled.
+export function applyReading(r, reading) {
+  const contacts = reading?.contacts ?? (reading?.fields ? [{ fields: reading.fields, confidence: 1, unsure: [] }] : []);
+  const [first, ...rest] = contacts;
+  r.parseError = '';
+  if (!first) {
+    r.parseStatus = 'unreadable';
+    r.parsedKeys = [];
+    r.unsureKeys = [];
+    return [];
+  }
+  const changed = fillBlanks(r, first.fields);
+  r.parsedKeys = changed;
+  r.unsureKeys = (first.unsure ?? []).filter((k) => changed.includes(k));
+  r.readConfidence = Number(first.confidence ?? 1);
+  r.extraContacts = rest.map((c) => ({ fields: c.fields ?? {}, unsure: c.unsure ?? [] }));
+  r.parseStatus = 'done';
+  return changed;
+}
+
 // Local time in a form Excel recognises as a date/time: 2026-10-20 14:05
 export function excelDate(iso) {
   if (!iso) return '';

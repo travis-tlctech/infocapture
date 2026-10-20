@@ -7,7 +7,7 @@ import { getSettings, getState, setState, isM365Configured } from './settings.js
 import { getAccount, getGraphToken, getApiToken, AuthRequiredError, NetworkError } from './auth.js';
 import { ExcelStore, GraphError } from './excel.js';
 import { readCardPhoto } from './cardreader.js';
-import { fillBlanks } from './fields.js';
+import { applyReading } from './fields.js';
 
 // Thrown when a record is discarded on this device mid-sync.
 class RecordGone extends Error {}
@@ -149,11 +149,9 @@ export class Syncer extends EventTarget {
       const blob = await db.getImage(rec.id);
       if (blob) {
         try {
-          const fields = await readCardPhoto(s.cardReaderUrl, await getApiToken(s), blob);
+          const reading = await readCardPhoto(s.cardReaderUrl, await getApiToken(s), blob);
           working = await update(rec.id, (r) => {
-            r.parsedKeys = fillBlanks(r, fields);
-            r.parseStatus = 'done';
-            r.parseError = '';
+            applyReading(r, reading);
           });
         } catch (err) {
           if (err instanceof NetworkError) throw err;

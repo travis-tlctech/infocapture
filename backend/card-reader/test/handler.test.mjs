@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPair, exportJWK, SignJWT, createLocalJWKSet } from 'jose';
 import { createHandler, makeTokenVerifier } from '../src/index.mjs';
-import { CONTACT_SCHEMA, normalise } from '../src/extract.mjs';
+import Anthropic from '@anthropic-ai/sdk';
+import { CARD_SCHEMA, SYSTEM_PROMPT, checkEntry } from '../src/extract.mjs';
 
 const TENANT = '11111111-2222-3333-4444-555555555555';
 const CLIENT = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -37,20 +38,26 @@ function fakeClient(reply) {
   };
 }
 
-const okReply = {
+const entry = (over = {}) => ({
+  firstName: 'Ana', lastName: 'Silva', title: 'CTO', company: 'Acme', email: 'ana@acme.io', phone: '+1 555 0100',
+  phoneAlt: null, website: 'acme.io', linkedin: null, address: null, other: 'Speaker', confidence: 0.92, unsure: [], ...over,
+});
+const replyWith = (contacts, over = {}) => ({
   model: 'claude-opus-5-5',
   stop_reason: 'end_turn',
   usage: { input_tokens: 1500, output_tokens: 120 },
   content: [
     { type: 'thinking', thinking: '' },
-    { type: 'text', text: JSON.stringify({ firstName: 'Ana', lastName: 'Silva', title: 'CTO', company: 'Acme', email: 'ana@acme.io', phone: '+1 555 0100', phoneAlt: '', website: 'acme.io', linkedin: '', address: '', other: 'Speaker' }) },
+    { type: 'text', text: JSON.stringify({ contacts }) },
   ],
-};
+  ...over,
+});
+const okReply = replyWith([entry()]);
 
 const silent = { log() {}, warn() {}, error() {} };
 
-function makeHandler(client) {
-  return createHandler({ verifyToken, getClient: async () => client, model: 'claude-opus-5-5', effort: 'low', log: silent });
+function makeHandler(client, log = silent) {
+  return createHandler({ verifyToken, getClient: async () => client, model: 'claude-opus-5-5', effort: 'low', log });
 }
 
 const event = (body, tok) => ({
@@ -66,12 +73,18 @@ test('reads a card photo and sends a structured-output request', async () => {
   assert.equal(res.statusCode, 200);
   const body = JSON.parse(res.body);
   assert.equal(body.ok, true);
+  assert.equal(body.unreadable, '');
   assert.equal(body.fields.firstName, 'Ana');
-  assert.equal(body.fields.other, 'Speaker');
+  assert.equal(body.fields.phoneAlt, '', 'null becomes an empty field');
+  assert.equal(body.contacts.length, 1);
+  assert.equal(body.contacts[0].confidence, 0.92);
+  assert.deepEqual(body.contacts[0].unsure, []);
 
   const req = client.calls[0];
   assert.equal(req.model, 'claude-opus-5-5');
-  assert.deepEqual(req.output_config.format, { type: 'json_schema', schema: CONTACT_SCHEMA });
+  assert.deepEqual(req.output_config.format, { type: 'json_schema', schema: CARD_SCHEMA });
+  assert.match(req.system, /Never correct spelling/);
+  assert.match(req.system, /untrusted input/);
   assert.equal(req.output_config.effort, 'low');
   assert.deepEqual(req.betas, ['server-side-fallback-2026-07-01']);
   assert.equal(req.fallbacks, 'default');
@@ -140,12 +153,63 @@ test('validates input', async () => {
   assert.equal((await handler(get)).statusCode, 405);
 });
 
-test('maps refusals and truncation to errors', async () => {
+test('refusals, cut-off and empty replies come back as "couldn\'t read it", not errors', async () => {
   const tok = await token();
-  const refused = makeHandler(fakeClient({ ...okReply, stop_reason: 'refusal', content: [] }));
-  assert.equal((await refused(event({ action: 'card', image: 'AAAA' }, tok))).statusCode, 422);
-  const cut = makeHandler(fakeClient({ ...okReply, stop_reason: 'max_tokens' }));
-  assert.equal((await cut(event({ action: 'card', image: 'AAAA' }, tok))).statusCode, 502);
+  const cases = [
+    [replyWith([], { stop_reason: 'refusal', content: [] }), 'declined'],
+    [replyWith([entry()], { stop_reason: 'max_tokens' }), 'cut_off'],
+    [replyWith([], { content: [{ type: 'text', text: 'not json' }] }), 'no_answer'],
+    [replyWith([]), 'nothing_found'],
+    [replyWith([entry({ firstName: null, lastName: null, title: null, company: null, email: null, phone: null, website: null, other: null })]), 'nothing_found'],
+  ];
+  for (const [r, why] of cases) {
+    const res = await makeHandler(fakeClient(r))(event({ action: 'card', image: 'AAAA' }, tok));
+    assert.equal(res.statusCode, 200, why);
+    const body = JSON.parse(res.body);
+    assert.equal(body.ok, true);
+    assert.equal(body.unreadable, why);
+    assert.deepEqual(body.contacts, []);
+  }
+});
+
+test('one entry per person on the card', async () => {
+  const two = replyWith([entry(), entry({ firstName: 'Bo', lastName: 'Lind', email: 'bo@acme.io', confidence: 0.8 })]);
+  const res = await makeHandler(fakeClient(two))(event({ action: 'card', image: 'AAAA' }, await token()));
+  const body = JSON.parse(res.body);
+  assert.equal(body.contacts.length, 2);
+  assert.equal(body.contacts[1].fields.firstName, 'Bo');
+  assert.equal(body.fields.firstName, 'Ana', 'fields is the first person');
+});
+
+test('values that do not look right are flagged for checking, never dropped', () => {
+  const checked = checkEntry(entry({ email: 'ana at acme', phone: '555-01', website: 'acme .io', confidence: 7, unsure: ['title', 'bogus', 'address'] }));
+  assert.equal(checked.fields.email, 'ana at acme');
+  assert.deepEqual(checked.unsure.sort(), ['email', 'phone', 'title', 'website']);
+  assert.equal(checked.confidence, 1);
+  assert.equal(checkEntry(entry({ confidence: 'high' })).confidence, 0);
+  assert.equal(checkEntry(null), null);
+});
+
+test('a replaced key takes effect after a 401', async () => {
+  let refreshed = false;
+  const good = fakeClient(okReply);
+  const stale = { beta: { messages: { create: async () => { throw new Anthropic.AuthenticationError(401, { error: { message: 'invalid x-api-key' } }, 'invalid x-api-key', new Headers()); } } } };
+  const handler = createHandler({ verifyToken, model: 'claude-opus-5-5', log: silent, getClient: async (refresh) => { if (refresh) refreshed = true; return refresh ? good : stale; } });
+  const res = await handler(event({ action: 'card', image: 'AAAA' }, await token()));
+  assert.equal(res.statusCode, 200);
+  assert.equal(refreshed, true);
+  const alwaysBad = createHandler({ verifyToken, model: 'claude-opus-5-5', log: silent, getClient: async () => stale });
+  assert.equal((await alwaysBad(event({ action: 'card', image: 'AAAA' }, await token()))).statusCode, 500);
+});
+
+test('logs hold sizes, timing and token counts, never card content', async () => {
+  const lines = [];
+  const log = { log: (l) => lines.push(l), warn() {}, error: (l) => lines.push(String(l)) };
+  await makeHandler(fakeClient(okReply), log)(event({ action: 'card', image: 'QUJD'.repeat(100) }, await token()));
+  const all = lines.join('\n');
+  assert.match(all, /"inputBytes":400/);
+  assert.match(all, /"inputTokens":1500/);
+  for (const secret of ['Ana', 'Silva', 'acme', 'Speaker', 'user-1']) assert.equal(all.includes(secret), false, secret);
 });
 
 test('handles base64-encoded bodies', async () => {
@@ -156,10 +220,14 @@ test('handles base64-encoded bodies', async () => {
   assert.equal((await makeHandler(fakeClient(okReply))(e)).statusCode, 200);
 });
 
-test('normalise keeps only known string fields', () => {
-  const out = normalise({ firstName: '  Ana\n ', email: 42, extra: 'x' });
-  assert.equal(out.firstName, 'Ana');
-  assert.equal(out.email, '');
-  assert.equal('extra' in out, false);
-  assert.equal(Object.keys(out).length, 11);
+test('checkEntry keeps only known string fields', () => {
+  const out = checkEntry({ firstName: '  Ana\n ', email: 42, extra: 'x', confidence: 0.5, unsure: [] });
+  assert.equal(out.fields.firstName, 'Ana');
+  assert.equal(out.fields.email, '');
+  assert.equal('extra' in out.fields, false);
+  assert.equal(Object.keys(out.fields).length, 11);
+});
+
+test('the system prompt carries the handoff rules', () => {
+  for (const rule of [/exactly what is printed/, /null/, /One entry per person/, /logo/i, /Handwritten/, /untrusted input/]) assert.match(SYSTEM_PROMPT, rule);
 });

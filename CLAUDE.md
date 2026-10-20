@@ -22,6 +22,15 @@ Phone-first lead capture: scan a badge QR code or snap a business card, add note
 - A new subtask lands at the top of its parent, so create subtasks last to first. Re-attaching a subtask to the same parent does not move it.
 - Comment and notes HTML allows only `<body>`, `<strong>`, `<em>`, `<u>`, `<s>`, `<code>`, `<ol>`, `<ul>`, `<li>`, `<a>`, `<blockquote>`, `<pre>` (notes also allow a few more). Any other tag, `<br/>` especially, breaks it. Use plain newlines. Write `>` as `&gt;` inside HTML. Comments cannot be edited or deleted through the tools.
 
+## Anthropic API key (Travis's rules)
+
+- Never ask Travis for the key, and never read it. He never pastes it into chat, Asana or email.
+- He enters it himself at a hidden prompt in the Terminal app: `backend/card-reader/set-key.sh` (it guards against an empty capture). Check the stored key only by its metadata (name, dates, version count), never its value.
+- The key never goes into browser or phone code; only the card reader Lambda reads it, from AWS Secrets Manager.
+- AWS: account TLC Tech, CLI profile `tlc-tech`, region us-east-2. Leave the `default` profile alone, and ask Travis before creating any new AWS resource.
+- Claude Console organization "TLC Tech" holds the shared monthly API credit; this tool's key is `info-capture`.
+- Logs record sizes, timing and token counts only, never what a card says. Background: Anthropic_API_Handoff_for_TLC_Info_Capture_Tool.md in the project folder.
+
 ## Development
 
 - `npm install`, then `npm start` (http://localhost:8080), `npm test` (unit), `npm run test:e2e` (browser tests; needs ffmpeg and Playwright's Chromium).

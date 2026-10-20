@@ -1,7 +1,8 @@
-// Shrinks a phone photo before storing or sending it. 1600px on the long
-// edge keeps small print on a card legible while staying a few hundred KB.
+// Shrinks a phone photo before storing or sending it, and always produces a
+// JPEG (iPhone HEIC photos are converted here; the API does not take HEIC).
+// 1500 px on the long edge keeps small print legible at a few hundred KB.
 
-export async function prepareImage(file, { maxEdge = 1600, quality = 0.85 } = {}) {
+export async function prepareImage(file, { maxEdge = 1500, quality = 0.85 } = {}) {
   const source = await loadBitmap(file);
   const scale = Math.min(1, maxEdge / Math.max(source.width, source.height));
   const width = Math.round(source.width * scale);

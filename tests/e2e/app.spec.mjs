@@ -22,7 +22,7 @@ const shot = (page, name) => page.screenshot({ path: join(FIXTURES, 'screens', `
 
 // Wires a page to the fake Graph and a fake card reader, with a signed-in
 // stand-in for MSAL.
-async function setup(page, { settings = SETTINGS, signedIn = true, readerFields = {}, readerDelay = 300 } = {}) {
+async function setup(page, { settings = SETTINGS, signedIn = true, readerFields = {}, readerReply = null, readerDelay = 300 } = {}) {
   const graph = new FakeGraph();
   const reader = { calls: [] };
   await page.addInitScript(({ settings, signedIn }) => {
@@ -53,8 +53,14 @@ async function setup(page, { settings = SETTINGS, signedIn = true, readerFields 
     const body = req.postDataJSON();
     reader.calls.push({ body, auth: req.headers().authorization });
     await new Promise((r) => setTimeout(r, readerDelay));
-    const fields = typeof readerFields === 'function' ? readerFields(body) : readerFields;
-    await route.fulfill({ status: 200, headers: { ...CORS, 'content-type': 'application/json' }, body: JSON.stringify({ ok: true, fields }) });
+    let payload;
+    if (readerReply) {
+      payload = typeof readerReply === 'function' ? readerReply(body, reader.calls.length) : readerReply;
+    } else {
+      const fields = typeof readerFields === 'function' ? readerFields(body) : readerFields;
+      payload = { ok: true, contacts: Object.keys(fields).length ? [{ fields, confidence: 0.95, unsure: [] }] : [], fields, unreadable: Object.keys(fields).length ? '' : 'nothing_found' };
+    }
+    await route.fulfill({ status: 200, headers: { ...CORS, 'content-type': 'application/json' }, body: JSON.stringify(payload) });
   });
   return { graph, reader };
 }
@@ -141,6 +147,50 @@ test('a card photo is read by the card reader without losing typed notes', async
   const photo = [...graph.items.values()].find((i) => i.path.startsWith('InfoCapture/Card Photos/'));
   expect(photo.name).toMatch(/Priya Raman Contoso Health/);
   expect(photo.contentType).toBe('image/jpeg');
+});
+
+test('a card with two people and unsure fields; an unreadable card stays calm', async ({ page }) => {
+  const { graph } = await setup(page, {
+    readerReply: (body, n) => n === 1
+      ? {
+        ok: true,
+        unreadable: '',
+        contacts: [
+          { fields: { firstName: 'Priya', lastName: 'Raman', title: 'VP, People Operations', company: 'Contoso Health', email: 'priya.raman@contoso-health' }, confidence: 0.55, unsure: ['email'] },
+          { fields: { firstName: 'Sam', lastName: 'Lee', title: 'Recruiter', company: 'Contoso Health', email: 'sam.lee@contoso-health.example' }, confidence: 0.9, unsure: [] },
+        ],
+      }
+      : { ok: true, unreadable: 'declined', contacts: [], fields: {} },
+  });
+  await page.goto('./');
+  let chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Snap card/ }).click();
+  await (await chooser).setFiles(join(FIXTURES, 'card.png'));
+
+  await expect(page.locator('[name=firstName]')).toHaveValue('Priya', { timeout: 10000 });
+  await expect(page.locator('.field.unsure [name=email]')).toBeVisible();
+  await expect(page.locator('.field.unsure .check-tag')).toHaveText('check');
+  await expect(page.locator('#parse-status')).toContainText("wasn't sure");
+  await expect(page.locator('#parse-status')).toContainText('This card also lists Sam Lee');
+  await shot(page, '09-two-people-unsure');
+
+  await page.locator('[name=email]').fill('priya.raman@contoso-health.example');
+  await expect(page.locator('.field.unsure')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Add as a contact' }).click();
+  await expect(page.locator('[name=firstName]')).toHaveValue('Sam');
+  await expect(page.locator('.card-photo img')).toBeVisible();
+  await page.getByRole('button', { name: /Save contact/ }).click();
+  await expect(syncPill(page)).toContainText('Synced', { timeout: 10000 });
+  const rows = graph.rowsAsObjects();
+  expect(rows.map((r) => r['First Name']).sort()).toEqual(['Priya', 'Sam']);
+  expect(rows.find((r) => r['First Name'] === 'Priya').Email).toBe('priya.raman@contoso-health.example');
+  expect(rows.every((r) => /^=HYPERLINK/.test(r['Card Photo']))).toBe(true);
+
+  chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Snap card/ }).click();
+  await (await chooser).setFiles(join(FIXTURES, 'card.png'));
+  await expect(page.locator('#parse-status')).toContainText("Couldn't read this card", { timeout: 10000 });
+  await expect(page.locator('.reading.warn')).toHaveCount(0);
 });
 
 test('captures made offline sync when the phone reconnects, card read included', async ({ page, context }) => {

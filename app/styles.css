@@ -16,6 +16,7 @@
   --danger-soft: #fdecea;
   --info-soft: #e8f1fb;
   --filled: #fff7d6;
+  --unsure: #ffe2c2;
   --shadow: 0 1px 2px rgb(15 27 36 / 6%), 0 4px 14px rgb(15 27 36 / 6%);
   --radius: 14px;
   --tap: 48px;
@@ -41,6 +42,7 @@
     --danger-soft: #3a1714;
     --info-soft: #14283b;
     --filled: #3a3313;
+    --unsure: #4a2a10;
     --shadow: 0 1px 2px rgb(0 0 0 / 40%);
     color-scheme: dark;
   }
@@ -247,10 +249,11 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
 .card-photo img { display: block; width: 100%; max-height: 210px; object-fit: contain; background: var(--surface-2); }
 .card-photo.zoomed img { max-height: none; }
 .card-photo-link { display: inline-flex; gap: 6px; align-items: center; margin-bottom: 10px; }
-.reading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; color: var(--muted); padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); margin-bottom: 12px; }
+.reading { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; color: var(--muted); padding: 10px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); margin-bottom: 12px; }
 .reading.ok { color: var(--ok); }
 .reading.warn { color: var(--warn); }
 .reading .link-btn { padding: 0; }
+.reading > .icon { margin-top: 2px; }
 .qr-raw { margin-bottom: 10px; font-size: 14px; }
 .qr-raw summary { color: var(--muted); cursor: pointer; padding: 6px 0; }
 .qr-raw pre { white-space: pre-wrap; word-break: break-all; background: var(--surface-2); padding: 10px; border-radius: 10px; margin: 6px 0; max-height: 180px; overflow: auto; font-size: 12px; }
@@ -267,6 +270,9 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
 .field textarea { min-height: 112px; resize: vertical; line-height: 1.4; }
 .field input:focus, .field textarea:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: transparent; }
 .field.filled input { background: var(--filled); }
+.field .check-tag { display: none; }
+.field.unsure input { background: var(--unsure); box-shadow: inset 4px 0 0 var(--warn); }
+.field.unsure .check-tag { display: inline; margin-left: 6px; font-style: normal; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--warn); }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .grid2 .field { min-width: 0; }
 

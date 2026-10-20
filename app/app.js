@@ -3,7 +3,7 @@ import { getSettings, saveSettings, isM365Configured, getState, setState, DEFAUL
 import * as auth from './js/auth.js';
 import { Syncer, needsSync } from './js/sync.js';
 import { ExcelStore } from './js/excel.js';
-import { CONTACT_FIELDS, SOURCE_LABELS, emptyContact, displayName, fillBlanks } from './js/fields.js';
+import { CONTACT_FIELDS, SOURCE_LABELS, emptyContact, displayName, applyReading } from './js/fields.js';
 import { parseQr, worthAskingCardReader, encodeSetup, decodeSetup } from './js/parsers.js';
 import { QrScanner, decodeQrFromFile } from './js/scanner.js';
 import { prepareImage } from './js/image.js';
@@ -320,8 +320,8 @@ async function handleQrText(text) {
 async function readQrInBackground(id, text) {
   const s = getSettings();
   try {
-    const fields = await readQrText(s.cardReaderUrl, await auth.getApiToken(s), text);
-    await applyReaderFields(id, fields);
+    const reading = await readQrText(s.cardReaderUrl, await auth.getApiToken(s), text);
+    await applyReaderFields(id, reading);
   } catch (err) {
     await db.updateRecord(id, (r) => {
       r.parseStatus = 'none';
@@ -344,7 +344,7 @@ async function handleCardFile(file) {
   try {
     prepared = await prepareImage(file);
   } catch {
-    toast('Could not open that photo. Try again.');
+    toast('Could not open that photo. If it came from the photo library, take it again with Snap card.');
     return;
   }
   const s = getSettings();
@@ -362,8 +362,8 @@ async function readCardInBackground(id) {
   const s = getSettings();
   try {
     const blob = await db.getImage(id);
-    const fields = await readCardPhoto(s.cardReaderUrl, await auth.getApiToken(s), blob);
-    await applyReaderFields(id, fields);
+    const reading = await readCardPhoto(s.cardReaderUrl, await auth.getApiToken(s), blob);
+    await applyReaderFields(id, reading);
   } catch (err) {
     const retryLater = err instanceof auth.AuthRequiredError || err instanceof auth.NetworkError;
     await db.updateRecord(id, (r) => {
@@ -374,25 +374,25 @@ async function readCardInBackground(id) {
   }
 }
 
-async function applyReaderFields(id, fields) {
+async function applyReaderFields(id, reading) {
   let changed = [];
   const rec = await db.updateRecord(id, (r) => {
     // Use what is in the open form, so text typed while reading is kept.
     if (ui.form?.rec.id === id) Object.assign(r, pickContact(ui.form.rec));
-    changed = fillBlanks(r, fields);
-    r.parsedKeys = changed;
-    r.parseStatus = 'done';
-    r.parseError = '';
+    changed = applyReading(r, reading);
+    // A badge code with nothing readable just leaves the QR data on show.
+    if (r.parseStatus === 'unreadable' && r.source === 'qr') r.parseStatus = 'none';
     if (changed.length) touch(r);
   });
   if (!rec) return;
   if (ui.form?.rec.id === id) {
-    Object.assign(ui.form.rec, pickContact(rec), { parseStatus: rec.parseStatus, parsedKeys: rec.parsedKeys, updatedAt: rec.updatedAt, syncStatus: rec.syncStatus });
+    Object.assign(ui.form.rec, pickContact(rec), { parseStatus: rec.parseStatus, parsedKeys: rec.parsedKeys, unsureKeys: rec.unsureKeys, updatedAt: rec.updatedAt, syncStatus: rec.syncStatus });
     for (const key of changed) {
       const input = app.querySelector(`[name="${key}"]`);
       if (input) {
         input.value = rec[key];
         input.closest('.field')?.classList.add('filled');
+        input.closest('.field')?.classList.toggle('unsure', (rec.unsureKeys ?? []).includes(key));
       }
     }
     if (changed.some((k) => CONTACT_FIELDS.find((f) => f.key === k)?.more)) app.querySelector('details.more')?.setAttribute('open', '');
@@ -425,8 +425,8 @@ async function renderForm(id) {
     else if (rec.cardImageUrl) imageHtml = `<a class="card-photo-link" href="${esc(rec.cardImageUrl)}" target="_blank" rel="noopener">${icon('image', 'small')} View card photo</a>`;
   }
   const field = (f) => `
-    <label class="field${(rec.parsedKeys || []).includes(f.key) ? ' filled' : ''}">
-      <span>${esc(f.label)}</span>
+    <label class="field${(rec.parsedKeys || []).includes(f.key) ? ' filled' : ''}${(rec.unsureKeys || []).includes(f.key) ? ' unsure' : ''}">
+      <span>${esc(f.label)}<em class="check-tag">check</em></span>
       <input name="${f.key}" type="${f.type || 'text'}" ${f.inputmode ? `inputmode="${f.inputmode}"` : ''} autocomplete="off" autocapitalize="${f.type ? 'off' : 'words'}" value="${esc(rec[f.key])}">
     </label>`;
   const main = CONTACT_FIELDS.filter((f) => !f.more);
@@ -467,7 +467,7 @@ async function renderForm(id) {
     const { name, value } = e.target;
     if (!name || !ui.form) return;
     ui.form.rec[name] = value;
-    e.target.closest('.field')?.classList.remove('filled');
+    e.target.closest('.field')?.classList.remove('filled', 'unsure');
     queueFormSave();
   });
   form.addEventListener('change', (e) => {
@@ -499,15 +499,24 @@ async function refreshFormStatus(id) {
   if (rec.parseStatus === 'reading') {
     html = `<div class="reading">${icon('refresh', 'spin small')} Reading ${rec.source === 'qr' ? 'badge code' : 'card'}... keep typing notes meanwhile.</div>`;
   } else if (rec.parseStatus === 'done' && rec.source === 'card') {
-    html = rec.parsedKeys?.length
-      ? `<div class="reading ok">${icon('check', 'small')} Filled from the card. Check the highlighted fields.</div>`
-      : `<div class="reading">${icon('alert', 'small')} Nothing new found on the card. Fill in what you need.</div>`;
+    const unsure = (rec.unsureKeys ?? []).length || (rec.readConfidence ?? 1) < 0.6;
+    html = !rec.parsedKeys?.length
+      ? `<div class="reading">${icon('alert', 'small')} Nothing new found on the card. Fill in what you need.</div>`
+      : unsure
+        ? `<div class="reading warn">${icon('alert', 'small')} Filled from the card, but the reader wasn't sure of everything. Check the fields marked "check" against the photo.</div>`
+        : `<div class="reading ok">${icon('check', 'small')} Filled from the card. Check the highlighted fields.</div>`;
+  } else if (rec.parseStatus === 'unreadable') {
+    html = `<div class="reading">${icon('image', 'small')} Couldn't read this card. Fill in what you need from the photo.</div>`;
   } else if (rec.parseStatus === 'pending') {
     html = `<div class="reading">${icon('cloud-off', 'small')} The card will be read when you are online and signed in.</div>`;
   } else if (rec.parseStatus === 'failed') {
     html = `<div class="reading warn">${icon('alert', 'small')} Could not read the card: ${esc(rec.parseError || 'unknown error')} <button type="button" class="link-btn" data-action="reread">Try again</button></div>`;
   } else if (rec.source === 'card' && !s.cardReaderUrl) {
     html = `<div class="reading">${icon('image', 'small')} Photo saved with the contact. (Automatic card reading is not set up.)</div>`;
+  }
+  for (const [i, extra] of (rec.extraContacts ?? []).entries()) {
+    const who = displayName(extra.fields) || 'another person';
+    html += `<div class="banner info">${icon('user-plus')}<div>This card also lists <strong>${esc(who)}</strong>.</div><button type="button" class="btn small" data-action="add-extra" data-index="${i}">Add as a contact</button></div>`;
   }
   el.innerHTML = html;
 }
@@ -551,10 +560,8 @@ async function closeForm() {
   if (f?.changedSinceOpen && !f.rec.isDraft) await syncer.changed();
 }
 
-async function finishDraft() {
-  const f = ui.form;
-  if (!f || f.finishing) return;
-  f.finishing = true;
+// Turns the open draft into a saved contact that will sync.
+async function commitDraft(f) {
   await saveForm();
   await db.updateRecord(f.rec.id, (r) => {
     r.isDraft = false;
@@ -567,8 +574,48 @@ async function finishDraft() {
     db.requestPersistence();
   }
   await syncer.changed(600);
+}
+
+async function finishDraft() {
+  const f = ui.form;
+  if (!f || f.finishing) return;
+  f.finishing = true;
+  await commitDraft(f);
   toast(`Saved ${displayName(f.rec) || 'contact'}`);
   go('#/');
+}
+
+// A card that lists two people: save this contact, then open the other
+// person as a new contact with the same photo.
+async function addExtraContact(index) {
+  const f = ui.form;
+  if (!f || f.finishing) return;
+  f.finishing = true;
+  await saveForm();
+  const current = await db.getRecord(f.rec.id);
+  const extra = current?.extraContacts?.[index];
+  if (!extra) {
+    f.finishing = false;
+    return;
+  }
+  const rec = newRecord(current.source, extra.fields);
+  rec.event = current.event;
+  rec.capturedBy = current.capturedBy;
+  rec.parsedKeys = Object.keys(extra.fields).filter((k) => extra.fields[k]);
+  rec.unsureKeys = extra.unsure ?? [];
+  rec.parseStatus = 'done';
+  const blob = current.hasImage ? await db.getImage(current.id) : null;
+  if (blob) {
+    await db.putImage(rec.id, blob);
+    rec.hasImage = true;
+  }
+  await db.putRecord(rec);
+  await db.updateRecord(current.id, (r) => {
+    r.extraContacts = (r.extraContacts ?? []).filter((_, i) => i !== index);
+  });
+  if (current.isDraft) await commitDraft(f);
+  toast(`Saved ${displayName(current) || 'contact'}. Now check ${displayName(rec) || 'the second person'}.`);
+  go(`#/c/${rec.id}`, { replace: true });
 }
 
 // ---------- settings ----------
@@ -807,6 +854,7 @@ const actions = {
     refreshFormStatus(id);
     readCardInBackground(id);
   },
+  'add-extra': (btn) => addExtraContact(Number(btn.dataset.index)),
   'zoom-photo': (btn) => btn.classList.toggle('zoomed'),
   async 'edit-event'() {
     const s = getSettings();

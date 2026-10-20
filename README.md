@@ -67,24 +67,30 @@ In the [Entra admin center](https://entra.microsoft.com):
 
 Skip this to start without automatic card reading: photos are still saved, and you type the fields.
 
-1. Create an API key at [console.anthropic.com](https://console.anthropic.com) and store it in SSM Parameter Store (same region as the stack):
+The reader uses Claude through Anthropic's API, set up the same way as TrainMe's certificate reader. It runs in the TLC Tech AWS account, CLI profile `tlc-tech`, region `us-east-2`. The scripts use that profile and leave `default` alone.
 
-   ```bash
-   aws ssm put-parameter --region us-east-2 \
-     --name /infocapture/anthropic-api-key --type SecureString \
-     --value 'sk-ant-...'
-   ```
+1. **Create a key for this tool.** In the Claude Console organization **TLC Tech**, create an API key named `info-capture`. It draws on the same monthly credit as TrainMe, but a key per tool shows usage per tool and can be revoked on its own.
 
-2. Deploy (needs Node 20+, the AWS CLI, and any S3 bucket for the code package):
+2. **Store it in AWS Secrets Manager**, in the Terminal app (never paste the key into a chat, Asana or email):
 
    ```bash
    cd backend/card-reader
+   ./set-key.sh
+   ```
+
+   It asks for the key at a hidden prompt, refuses an empty paste, stores it as the secret `infocapture/anthropic-api-key` (about $0.40 a month), and shows only its metadata. Run it again to replace the key; the Lambda picks up the new one after its next 401.
+
+3. **Deploy** (needs Node 20+, the AWS CLI, and any S3 bucket for the code package):
+
+   ```bash
    TENANT_ID=<tenant id> CLIENT_ID=<client id> ARTIFACT_BUCKET=<bucket> ./deploy.sh
    ```
 
-   It runs the tests, builds, deploys the `infocapture-card-reader` CloudFormation stack in `us-east-2`, and prints the **card reader URL**. Optional variables: `AWS_REGION`, `STACK_NAME`, `ALLOWED_ORIGINS` (default `https://travis-tlctech.github.io`; add `,http://localhost:8080` for local testing), `CLAUDE_MODEL`.
+   It checks the secret exists, runs the tests, builds, deploys the `infocapture-card-reader` CloudFormation stack (a Lambda, its role, a function URL and a log group), and prints the **card reader URL**. Optional variables: `AWS_PROFILE`, `AWS_REGION`, `STACK_NAME`, `ALLOWED_ORIGINS` (default `https://travis-tlctech.github.io`; add `,http://localhost:8080` for local testing), `CLAUDE_MODEL`.
 
 The Lambda rejects any request without a valid Microsoft 365 access token from your tenant carrying the `access_as_user` scope. The function URL allows browser calls only from `ALLOWED_ORIGINS`. To cap spend, set the stack's `ReservedConcurrency` parameter.
+
+**What the reader does with a card.** It reports exactly what is printed (it never corrects spelling), gives one entry per person, puts handwritten notes in Other Info, and ignores any text in the photo that is addressed to it. It also says how sure it is: the form marks fields it was unsure of with **check**, and offers to add a second person on the same card as a separate contact. A card it cannot read (including a refusal) shows "Couldn't read this card" so you type the fields from the photo; that is never an error.
 
 ### 4. Fill in `app/config.js`
 
@@ -138,13 +144,13 @@ Table `InfoCaptureLeads`, one row per contact:
 
 - GitHub Pages, Microsoft Graph: no extra cost.
 - AWS: Lambda and SSM standard parameters stay inside the free tier at conference volumes.
-- Claude: the reader uses `claude-opus-5-5` at low effort, roughly 2 to 3 thousand tokens per card: about $0.02 per card at list price ($10 for 500 cards). Set `CLAUDE_MODEL=claude-haiku-5-5` when deploying for a much cheaper, slightly less accurate reader.
+- Claude: the reader uses `claude-opus-5-5` at low effort, about 1.5 to 2 cents a card (TrainMe measures about 1.6 cents per certificate page), so a conference's worth is a few dollars out of the monthly API credit shared with TrainMe. Set `CLAUDE_MODEL=claude-haiku-5-5` when deploying for a much cheaper, slightly less accurate reader.
 
 ## Privacy and security
 
 - Contact data lives on the phone (until synced) and in your Microsoft 365 tenant. There is no third-party database.
-- Card photos and unrecognised QR text are sent to your card reader Lambda, which sends them to the Anthropic API to be read. Nothing is stored in AWS; its logs record the user's Entra object ID, token counts and timings, never contact details.
-- The Claude API key never reaches a phone. Microsoft tokens are short-lived and cached in the browser by MSAL.
+- Card photos and unrecognised QR text are sent to your card reader Lambda, which sends them to the Anthropic API to be read under Anthropic's commercial API terms. Nothing is stored in AWS; its logs record only sizes, timings and token counts, never what a card says.
+- The Claude API key never reaches a phone: it lives in AWS Secrets Manager and is entered only at a hidden Terminal prompt. Microsoft tokens are short-lived and cached in the browser by MSAL.
 - **Settings > Remove synced contacts from this phone** clears the local copies after an event.
 
 ## Known limits
@@ -177,4 +183,18 @@ cd backend/card-reader && npm install && npm test
 { "action": "ping" }
 ```
 
-Reply: `{ "ok": true, "fields": { "firstName", "lastName", "title", "company", "email", "phone", "phoneAlt", "website", "linkedin", "address", "other" } }` or `{ "ok": false, "error": "..." }`.
+Reply:
+
+```json
+{
+  "ok": true,
+  "contacts": [
+    { "fields": { "firstName": "", "lastName": "", "title": "", "company": "", "email": "", "phone": "", "phoneAlt": "", "website": "", "linkedin": "", "address": "", "other": "" },
+      "confidence": 0.9, "unsure": ["email"] }
+  ],
+  "fields": { "...": "the first contact's fields" },
+  "unreadable": ""
+}
+```
+
+`contacts` has one entry per person. `unreadable` is empty, or says why nothing came back (`declined`, `cut_off`, `no_answer`, `nothing_found`). Errors are `{ "ok": false, "error": "..." }`.

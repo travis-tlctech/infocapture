@@ -17,11 +17,10 @@ Parameters:
     Type: String
     Description: Comma-separated web origins allowed to call the reader (where the app is hosted)
     Default: https://travis-tlctech.github.io
-  ApiKeyParameterName:
+  ApiKeySecretName:
     Type: String
-    Description: SSM Parameter Store SecureString holding the Anthropic API key
-    Default: /infocapture/anthropic-api-key
-    AllowedPattern: '/.+'
+    Description: Secrets Manager secret holding the Anthropic API key (created with set-key.sh)
+    Default: infocapture/anthropic-api-key
   ClaudeModel:
     Type: String
     Default: claude-opus-5-5
@@ -56,8 +55,9 @@ Resources:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
-                Action: ssm:GetParameter
-                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ApiKeyParameterName}
+                Action: secretsmanager:GetSecretValue
+                # Secrets Manager adds a random six-character suffix to the ARN.
+                Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ApiKeySecretName}-??????
 
   CardReaderFunction:
     Type: AWS::Lambda::Function
@@ -75,7 +75,7 @@ Resources:
         Variables:
           TENANT_ID: !Ref TenantId
           CLIENT_ID: !Ref ClientId
-          API_KEY_PARAMETER: !Ref ApiKeyParameterName
+          API_KEY_SECRET: !Ref ApiKeySecretName
           CLAUDE_MODEL: !Ref ClaudeModel
           CLAUDE_EFFORT: !Ref ClaudeEffort
 
