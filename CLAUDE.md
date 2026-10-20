@@ -11,7 +11,7 @@ Phone-first lead capture: scan a badge QR code or snap a business card, add note
 - Keep Status1 current on top-level tasks, with literal meanings (Not Started, Planned, In Progress, On Hold, Blocked, Completed): set it when work starts, stops, waits on Travis or an outside party (Blocked), or finishes. Leave Assignee and Due Date alone unless asked.
 - Mark each subtask done as it finishes, with a short note on what was done and what is still open.
 - Questions for Travis are comments that tag @Travis Cryan on the task they block, with the asks in bold and numbered; say it in chat too.
-- Files Travis provides (sample badges, cards) go in the project folder, not as Asana attachments.
+- Files Travis provides (sample badges, cards, handoff notes) go in the project folder, OneDrive-TLCTech/Tool Dev/InfoCapture Tool, not as Asana attachments. That OneDrive is in the TLC Tech tenant; the Microsoft 365 connector used so far signs in to TLC TRNG (Travis@TLCTRNG.com) and cannot see it, so ask Travis to paste or upload what's needed.
 
 ### Mechanics
 
