@@ -12,5 +12,5 @@ export default {
 
   // "CardReaderUrl" output of the card reader stack (a Lambda function URL).
   // Leave blank to skip automatic card reading; photos are still saved.
-  cardReaderUrl: '',
+  cardReaderUrl: 'https://slqweaor23sc2kmxtziom2cm7i0elrtz.lambda-url.us-east-2.on.aws/',
 };
