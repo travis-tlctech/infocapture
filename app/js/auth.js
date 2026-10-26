@@ -2,6 +2,11 @@
 // login). The session lives in localStorage and refreshes in the background,
 // so people stay signed in; capturing never waits on sign-in, only syncing.
 
+// Loaded with the app itself (and cached for offline use by sw.js), never
+// later: a library that fails to load on a weak connection would leave the
+// app signed out until it was reopened.
+import { createClient } from '../vendor/supabase.min.js';
+
 export const SESSION_KEY = 'infocapture.auth';
 
 export class AuthRequiredError extends Error {
@@ -36,7 +41,6 @@ export async function initAuth(settings) {
   client = null;
   user = null;
   if (!settings.supabaseUrl || !settings.supabaseKey) return null;
-  const { createClient } = await import('../vendor/supabase.min.js');
   client = createClient(settings.supabaseUrl, settings.supabaseKey, {
     auth: { storageKey: SESSION_KEY, persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
   });

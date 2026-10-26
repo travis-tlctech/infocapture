@@ -15,6 +15,20 @@ REGION="${AWS_REGION:-us-east-2}"
 NAME="${SECRET_NAME:-infocapture/anthropic-api-key}"
 AWS=(aws --profile "$PROFILE" --region "$REGION")
 
+# Check the AWS sign-in before asking for the key, so a sign-in problem never
+# costs a pasted key.
+if ! command -v aws >/dev/null 2>&1; then
+  echo "The AWS command-line tool (aws) is not installed on this computer, so nothing was stored." >&2
+  exit 1
+fi
+if ! ACCOUNT="$("${AWS[@]}" sts get-caller-identity --query Account --output text 2>/dev/null)"; then
+  echo "AWS sign-in for profile $PROFILE is not working, so nothing was stored." >&2
+  echo "If that profile uses single sign-on, run: aws sso login --profile $PROFILE" >&2
+  echo "Then run ./set-key.sh again." >&2
+  exit 1
+fi
+echo "AWS account $ACCOUNT (profile $PROFILE, region $REGION)."
+
 read -rs -p "Paste the info-capture API key (input is hidden), then press Enter: " IC_KEY
 echo
 if [ ${#IC_KEY} -le 20 ]; then
