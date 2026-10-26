@@ -8,8 +8,12 @@ Description: >-
 Parameters:
   GitHubRepo:
     Type: String
-    Default: travis-tlctech/infocapture
-    AllowedPattern: '[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+'
+    # As GitHub writes it in the sign-in token's subject, which for this
+    # repository includes the owner's and the repository's fixed ID numbers
+    # (the deploy workflow prints the subject). The IDs never change, so a
+    # deleted and re-created repository with the same name cannot match.
+    Default: travis-tlctech@327117175/infocapture@1426302484
+    AllowedPattern: '[A-Za-z0-9_.-]+(@[0-9]+)?/[A-Za-z0-9_.-]+(@[0-9]+)?'
   ExistingOidcProviderArn:
     Type: String
     Default: ''

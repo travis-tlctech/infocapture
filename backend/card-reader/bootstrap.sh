@@ -15,7 +15,7 @@ cd "$(dirname "$0")"
 
 PROFILE="${AWS_PROFILE:-tlc-tech}"
 REGION="${AWS_REGION:-us-east-2}"
-REPO="${GITHUB_REPO:-travis-tlctech/infocapture}"
+REPO="${GITHUB_REPO:-travis-tlctech@327117175/infocapture@1426302484}"
 STACK=infocapture-deploy-access
 AWS=(aws --profile "$PROFILE" --region "$REGION")
 
