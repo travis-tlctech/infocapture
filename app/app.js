@@ -1044,13 +1044,21 @@ document.getElementById('qr-photo-input').addEventListener('change', async (e) =
   const file = e.target.files[0];
   if (!file) return;
   toast('Looking for the QR code...', { timeout: 0 });
+  // The live camera waits meanwhile, so it cannot open a different contact
+  // from whatever it is pointed at. It carries on only if the photo had no
+  // code; otherwise leaving the scanner stops it.
+  const live = ui.scanner;
+  if (live) live.paused = true;
+  let text = null;
   try {
-    const text = await decodeQrFromFile(file);
+    text = await decodeQrFromFile(file);
     document.getElementById('toast').classList.remove('show');
     if (text) handleQrText(text);
     else toast('No QR code found in that photo. Try again closer up.');
   } catch {
     toast('Could not read that photo.');
+  } finally {
+    if (live && !text) live.paused = false;
   }
 });
 

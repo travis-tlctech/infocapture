@@ -38,6 +38,7 @@ export class QrScanner {
     this.canvas = document.createElement('canvas');
     this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
     this.running = false;
+    this.paused = false; // true: the preview stays on but nothing is decoded
     this.frame = 0;
   }
 
@@ -104,7 +105,7 @@ export class QrScanner {
 
   loop() {
     if (!this.running) return;
-    this.decode()
+    (this.paused ? Promise.resolve(null) : this.decode())
       .then((text) => {
         if (text && this.running) {
           this.stop();
