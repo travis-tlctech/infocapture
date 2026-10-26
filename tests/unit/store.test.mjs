@@ -73,6 +73,16 @@ test('listAll pages through everyone\'s contacts, oldest first', async () => {
   assert.deepEqual(await store.check(), { member: true, rows: 2345 });
 });
 
+test('listAll with createdBy returns only the contacts that login captured', async () => {
+  const { fake, client, store } = await signedIn();
+  const { data } = await client.auth.getUser();
+  fake.leads.set('a', { ...toRow(rec({ id: 'a', firstName: 'Mine' })), created_by: data.user.id });
+  fake.leads.set('b', { ...toRow(rec({ id: 'b', firstName: 'Theirs' })), created_by: '00000000-0000-4000-8000-999999999999' });
+  assert.deepEqual((await store.listAll({ createdBy: data.user.id })).map((r) => r.first_name), ['Mine']);
+  assert.equal((await store.listAll()).length, 2);
+  assert.equal(fake.requests.filter((r) => r.search.includes(`created_by=eq.${data.user.id}`)).length, 1);
+});
+
 test('a login that is not on the team gets a clear message, and sees nothing', async () => {
   const { fake, store } = await signedIn({ member: false });
   await assert.rejects(store.upsert(rec()), (err) => err instanceof StoreError && err.message === NOT_ON_TEAM);

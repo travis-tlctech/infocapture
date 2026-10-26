@@ -392,6 +392,65 @@ test('sign in on the phone; a login that is not on the team is told so', async (
   expect(fake.rows().map((r) => r.first_name)).toEqual(['Signed']);
 });
 
+test('a phone new to this login gets its contacts, event and name back', async ({ page }) => {
+  // As on an iPhone where the app was added to the Home Screen after
+  // capturing in Safari: the Home Screen app starts with nothing.
+  const { fake, user } = await setup(page, { settings: { ...SETTINGS, event: '', capturedBy: '' } });
+  const lead = (id, over) => ({
+    id, captured_at: '2026-10-26T15:00:00.000Z', updated_at: '2026-10-26T15:00:00.000Z', synced_at: '2026-10-26T15:00:05.000Z',
+    first_name: '', last_name: '', company: '', title: '', email: '', phone: '', tags: [], notes: '', event: 'Expo 2026', captured_by: 'Travis',
+    source: 'card', other_phone: '', website: '', linkedin: '', address: '', other_info: '', card_photo: '', qr_data: '', ...over,
+  });
+  const MINE = '33333333-3333-4333-8333-333333333333';
+  fake.leads.set(MINE, lead(MINE, { first_name: 'Dana', last_name: 'Reyes', company: 'Tailspin Toys', notes: 'Wants a demo', created_by: user.id, card_photo: `${MINE}.jpg` }));
+  fake.objects.set(`${MINE}.jpg`, { contentType: 'image/jpeg', size: 9000 });
+  const OLDER = '44444444-4444-4444-8444-444444444444';
+  fake.leads.set(OLDER, lead(OLDER, { first_name: 'Lee', captured_at: '2026-10-25T15:00:00.000Z', event: 'Old Expo', source: 'qr', qr_data: 'https://example.com/badge/123', created_by: user.id }));
+  fake.leads.set('55555555-5555-4555-8555-555555555555', lead('55555555-5555-4555-8555-555555555555', { first_name: 'Sam', captured_by: 'Colleague', created_by: '00000000-0000-4000-8000-999999999999' }));
+
+  await page.goto('./');
+  await expect(page.locator('#toast')).toContainText('Brought back 2 of your contacts from the team list', { timeout: 10000 });
+  await expect(page.locator('.item-name')).toHaveText(['Dana Reyes', 'Lee']);
+  await expect(page.locator('.event-chip')).toContainText('Expo 2026');
+  await expect(syncPill(page)).toContainText('Synced');
+
+  // The card photo comes from the team list; the QR link still works.
+  await page.locator('.item', { hasText: 'Dana Reyes' }).click();
+  await expect(page.locator('[name=notes]')).toHaveValue('Wants a demo');
+  await expect(page.locator('#team-photo img')).toHaveAttribute('src', new RegExp(`/storage/v1/object/sign/card-photos/${MINE}\\.jpg\\?token=signed-3600`));
+  await page.getByRole('button', { name: 'Done' }).click();
+  await page.locator('.item', { hasText: 'Lee' }).click();
+  await page.getByText('QR data').click();
+  await expect(page.getByRole('link', { name: /Open link/ })).toHaveAttribute('href', 'https://example.com/badge/123');
+  await page.getByRole('button', { name: 'Done' }).click();
+
+  await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  await expect(page.locator('#settings-form [name=capturedBy]')).toHaveValue('Travis');
+  await expect(page.locator('#settings-form [name=event]')).toHaveValue('Expo 2026');
+
+  // Once per sign-in: removed contacts stay removed until the next one.
+  const restores = () => fake.requests.filter((r) => r.search.includes('created_by=')).length;
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Remove synced contacts from this phone' }).click();
+  await expect(page.locator('#toast')).toContainText('Removed 2 from this phone');
+  await page.goto('./');
+  await page.reload();
+  await expect(page.locator('.empty')).toContainText('No contacts yet');
+  expect(restores()).toBe(1);
+
+  await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await page.locator('[name=email]').fill(EMAIL);
+  await page.locator('[name=password]').fill(PASSWORD);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.locator('#toast')).toContainText('Brought back 2 of your contacts', { timeout: 10000 });
+  expect(restores()).toBe(2);
+  await page.goto('./#/');
+  await expect(page.locator('.item')).toHaveCount(2);
+  expect(fake.rows()).toHaveLength(3);
+});
+
 test('the team spreadsheet has everyone\'s contacts with photo links', async ({ page }) => {
   const { fake } = await setup(page);
   // A colleague's contact, captured on another phone.

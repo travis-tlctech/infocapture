@@ -3,11 +3,12 @@
 // retried without creating duplicate rows.
 
 import * as db from './db.js';
-import { getSettings, isConfigured } from './settings.js';
+import { getSettings, saveSettings, isConfigured, getState, setState } from './settings.js';
 import { getAccount, getClient, getAccessToken, AuthRequiredError, NetworkError } from './auth.js';
-import { SupabaseStore, StoreError, NOT_ON_TEAM } from './store.js';
+import { SupabaseStore, StoreError, NOT_ON_TEAM, fromRow } from './store.js';
 import { readCardPhoto } from './cardreader.js';
 import { applyReading } from './fields.js';
+import { parseQr } from './parsers.js';
 
 // Thrown when a record is discarded on this device mid-sync.
 class RecordGone extends Error {}
@@ -17,6 +18,9 @@ async function update(id, fn) {
   if (!r) throw new RecordGone();
   return r;
 }
+
+// The login whose contacts this phone already has (see Syncer.restore).
+export const RESTORED = 'restoredFor';
 
 export const needsSync = (r) => !r.isDraft && (r.deleted || r.syncStatus !== 'synced');
 
@@ -62,6 +66,7 @@ export class Syncer extends EventTarget {
       do {
         this.again = false;
         await this.runOnce();
+        if (this.status.state === 'idle') await this.restore();
       } while (this.again);
     } catch (err) {
       console.error(err);
@@ -117,6 +122,47 @@ export class Syncer extends EventTarget {
       return this.setStatus('error', left, `${n} contact${n > 1 ? 's' : ''} could not be sent: ${failures[0].message}`);
     }
     return this.setStatus('idle', left, sent ? `Sent ${sent} to the team list` : '');
+  }
+
+  // The first sync after signing in on a phone (a new phone, the app newly
+  // added to the Home Screen, or signing in again) brings back this login's
+  // contacts from the team list, and the event and name from the latest one
+  // where this phone has none. Contacts already on the phone are left as
+  // they are. Runs once per sign-in, so contacts removed from the phone with
+  // "Remove synced contacts" stay removed until the next one.
+  async restore() {
+    const account = getAccount();
+    if (!account || !isConfigured() || !navigator.onLine || getState(RESTORED) === account.id) return;
+    let rows;
+    try {
+      rows = await this.getStore().listAll({ createdBy: account.id });
+    } catch (err) {
+      if (err instanceof NetworkError || err instanceof AuthRequiredError) return; // the next sync tries again
+      throw err;
+    }
+    let added = 0;
+    for (const row of rows) {
+      if (await db.getRecord(row.id)) continue;
+      const rec = { ...fromRow(row), hasImage: false, parseStatus: 'none', isDraft: false, syncStatus: 'synced', syncedAt: row.synced_at || row.updated_at };
+      if (rec.qrRaw) {
+        const qr = parseQr(rec.qrRaw);
+        Object.assign(rec, { qrKind: qr.kind, qrUrl: qr.url });
+      }
+      await db.putRecord(rec);
+      added += 1;
+    }
+    const latest = rows.at(-1);
+    const s = getSettings();
+    const patch = {};
+    if (!s.event && latest?.event) patch.event = latest.event;
+    // A contact saved with no name set carries the login's own name or email.
+    if (!s.capturedBy && latest?.captured_by && ![account.name, account.username].includes(latest.captured_by)) patch.capturedBy = latest.captured_by;
+    if (Object.keys(patch).length) saveSettings(patch);
+    setState(RESTORED, account.id);
+    if (added || Object.keys(patch).length) {
+      this.dispatchEvent(new CustomEvent('restored', { detail: { added, ...patch } }));
+      this.setStatus('idle', await this.countPending(), '');
+    }
   }
 
   async syncRecord(store, rec, s) {

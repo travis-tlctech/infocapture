@@ -114,7 +114,8 @@ export class FakeSupabase {
         return empty();
       }
       if (method === 'GET' || method === 'HEAD') {
-        const all = caller.member ? this.rows() : [];
+        const by = u.searchParams.get('created_by')?.replace(/^eq\./, '');
+        const all = caller.member ? this.rows().filter((r) => !by || r.created_by === by) : [];
         if (method === 'HEAD') return empty(200, { 'content-range': `*/${all.length}` });
         const offset = Number(u.searchParams.get('offset') ?? 0);
         const limit = Number(u.searchParams.get('limit') ?? all.length);

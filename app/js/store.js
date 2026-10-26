@@ -99,11 +99,14 @@ export class SupabaseStore {
     return path;
   }
 
-  // Everyone's contacts, oldest first.
-  async listAll() {
+  // Everyone's contacts, oldest first; with createdBy (a user ID), only the
+  // ones that login captured.
+  async listAll({ createdBy } = {}) {
     const rows = [];
     for (let from = 0; ; from += PAGE) {
-      const { data, error, status } = await this.client.from(TABLE).select('*').order('captured_at').order('id').range(from, from + PAGE - 1);
+      let query = this.client.from(TABLE).select('*');
+      if (createdBy) query = query.eq('created_by', createdBy);
+      const { data, error, status } = await query.order('captured_at').order('id').range(from, from + PAGE - 1);
       if (error) fail(error, status, 'Reading the team list');
       rows.push(...data);
       if (data.length < PAGE) return rows;

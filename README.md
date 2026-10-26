@@ -114,6 +114,8 @@ Prefer not to commit them? Leave `config.js` blank, enter the values on one phon
 3. **Settings > Account**: sign in with your email and password. You stay signed in on that phone until you sign out.
 4. Settings: set **Your name** and the **Current event**, then **Test connection**.
 
+The first sync after signing in on a phone (a new phone, the app newly added to the Home Screen after using it in Safari, or signing in again) brings back the contacts that login captured, from the team list, and fills in an empty name and event from the latest one. Card photos of those contacts show from the team list when there is a connection.
+
 ## At the conference
 
 - Set the event once (tap the event bar on the home screen). It is stamped on every contact.
@@ -145,7 +147,7 @@ Many event badges only carry an attendee ID for the organiser's paid lead-retrie
 - Contact data lives on the phone (until synced) and in your Supabase project. Only signed-in team members can read or write it; public sign-ups are off, and the publishable key alone reaches nothing (`supabase/test/run.sh` checks these rules).
 - Card photos and unrecognised QR text are sent to your card reader Lambda, which sends them to the Anthropic API to be read under Anthropic's commercial API terms. Nothing is stored in AWS; its logs record only sizes, timings and token counts, never what a card says.
 - The Claude API key never reaches a phone: it lives in AWS Secrets Manager and is entered only at a hidden Terminal prompt. Deploys use short-lived GitHub credentials, not stored AWS keys.
-- **Settings > Remove synced contacts from this phone** clears the local copies after an event.
+- **Settings > Remove synced contacts from this phone** clears the local copies after an event. They come back from the team list the next time that login signs in on the phone.
 
 ## Known limits
 

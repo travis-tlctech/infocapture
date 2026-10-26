@@ -1,7 +1,7 @@
 import * as db from './js/db.js';
 import { getSettings, saveSettings, isConfigured, getState, setState, DEFAULT_TAGS } from './js/settings.js';
 import * as auth from './js/auth.js';
-import { Syncer, needsSync } from './js/sync.js';
+import { Syncer, needsSync, RESTORED } from './js/sync.js';
 import { NOT_ON_TEAM, fromRow } from './js/store.js';
 import { CONTACT_FIELDS, SOURCE_LABELS, emptyContact, displayName, applyReading } from './js/fields.js';
 import { parseQr, worthAskingCardReader, encodeSetup, decodeSetup } from './js/parsers.js';
@@ -434,6 +434,8 @@ async function renderForm(id) {
   if (rec.hasImage) {
     const blob = await db.getImage(id);
     if (blob) imageHtml = `<button type="button" class="card-photo" data-action="zoom-photo"><img src="${trackUrl(URL.createObjectURL(blob))}" alt="Card photo"></button>`;
+  } else if (rec.cardPhotoPath) {
+    imageHtml = `<button type="button" class="card-photo" data-action="zoom-photo" id="team-photo" data-path="${esc(rec.cardPhotoPath)}" hidden></button>`;
   }
   const field = (f) => `
     <label class="field${(rec.parsedKeys || []).includes(f.key) ? ' filled' : ''}${(rec.unsureKeys || []).includes(f.key) ? ' unsure' : ''}">
@@ -472,6 +474,7 @@ async function renderForm(id) {
     </footer>`;
 
   refreshFormStatus(id);
+  if (!rec.hasImage && rec.cardPhotoPath) showTeamPhoto(rec.cardPhotoPath);
   checkDuplicate();
   const form = app.querySelector('#form');
   form.addEventListener('input', (e) => {
@@ -492,6 +495,23 @@ function qrInfoHtml(rec) {
     ? `<p class="hint">This badge code has no contact details in it. Snap a photo of the badge instead, or type the name in.</p>`
     : '';
   return `<details class="qr-raw"><summary>QR data</summary><pre>${esc(rec.qrRaw)}</pre>${link}</details>${hint}`;
+}
+
+// A contact brought back from the team list has its card photo there, not
+// on this phone. Shown from there when there is a connection.
+async function showTeamPhoto(path) {
+  if (!isOnline() || !auth.getAccount()) return;
+  try {
+    const url = (await syncer.getStore().signedUrls([path], 3600)).get(path);
+    const slot = app.querySelector('#team-photo');
+    // The person may have moved on to another contact meanwhile.
+    if (url && slot?.dataset.path === path) {
+      slot.innerHTML = `<img src="${esc(url)}" alt="Card photo">`;
+      slot.hidden = false;
+    }
+  } catch {
+    // no connection or signed out: the contact shows without its photo
+  }
 }
 
 function syncLine(rec) {
@@ -949,6 +969,7 @@ const actions = {
   async 'sign-out'() {
     if (!confirm('Sign out on this phone? Unsynced contacts stay here and sync after you sign in again.')) return;
     await auth.signOut();
+    setState(RESTORED, null);
     syncer.store = null;
     renderSettings();
   },
@@ -1034,6 +1055,20 @@ document.getElementById('qr-photo-input').addEventListener('change', async (e) =
 });
 
 // ---------- startup ----------
+
+syncer.addEventListener('restored', async (e) => {
+  const { added } = e.detail;
+  if (ui.view === 'home') await renderHome();
+  else if (ui.view === 'settings') {
+    // Fill in the restored values without redrawing what is being typed.
+    const s = getSettings();
+    for (const name of ['event', 'capturedBy']) {
+      const input = app.querySelector(`#settings-form [name=${name}]`);
+      if (input && !input.value) input.value = s[name];
+    }
+  }
+  if (added) toast(`Brought back ${added} of your contact${added === 1 ? '' : 's'} from the team list`);
+});
 
 syncer.addEventListener('status', async () => {
   if (ui.view === 'home') {
