@@ -271,7 +271,7 @@ async function renderScan() {
   ui.view = 'scan';
   app.innerHTML = `
     <section class="scan" aria-label="QR scanner">
-      <video id="scan-video" playsinline muted></video>
+      <video id="scan-video" playsinline muted autoplay></video>
       <div class="scan-frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
       <header class="scan-top">
         <button type="button" class="icon-btn on-dark" data-action="close-scan" aria-label="Close scanner">${icon('x')}</button>
@@ -285,11 +285,15 @@ async function renderScan() {
     </section>`;
   const video = app.querySelector('#scan-video');
   const scanner = new QrScanner(video, (text) => handleQrText(text));
+  scanner.onEnded = () => offerCameraTap(scanner);
   ui.scanner = scanner;
   try {
-    await scanner.start();
+    const playing = await scanner.start();
     if (ui.scanner !== scanner) return scanner.stop(); // left the view while starting
     if (scanner.torchSupported()) app.querySelector('[data-action="torch"]').hidden = false;
+    // Some iPhones show the camera only after a tap; offer one if no
+    // picture arrives.
+    if (!playing || !(await scanner.waitForPicture(3000))) offerCameraTap(scanner);
   } catch (err) {
     if (ui.scanner !== scanner) return;
     ui.scanner = null;
@@ -299,6 +303,12 @@ async function renderScan() {
       : esc(err?.message || 'Could not start the camera.');
     app.querySelector('.scan').classList.add('failed');
   }
+}
+
+function offerCameraTap(scanner) {
+  // No stream: the scanner already read a code and closed the camera.
+  if (ui.scanner !== scanner || !scanner.stream || app.querySelector('.camera-tap')) return;
+  app.querySelector('.scan')?.insertAdjacentHTML('beforeend', `<button type="button" class="btn primary camera-tap" data-action="camera-tap">Tap to start the camera</button>`);
 }
 
 async function handleQrText(text) {
@@ -828,6 +838,21 @@ const actions = {
     go(`#/c/${rec.id}`, { replace: ui.view === 'scan' });
   },
   'close-scan': () => goBack(),
+  async 'camera-tap'(btn) {
+    const scanner = ui.scanner;
+    btn.remove();
+    if (!scanner) return;
+    // play() inside the tap is what iPhones wait for; if the picture still
+    // doesn't come, open the camera again.
+    if ((await scanner.resume()) && (await scanner.waitForPicture(2000))) return;
+    try {
+      await scanner.restart();
+      if (ui.scanner === scanner && (await scanner.waitForPicture(3000))) return;
+    } catch {
+      // reported below
+    }
+    if (ui.scanner === scanner) app.querySelector('#scan-hint').textContent = 'The camera is not showing a picture. Close the scanner and open it again, or use "Scan from a photo".';
+  },
   async torch(btn) {
     const on = !btn.classList.contains('on');
     try {
@@ -996,8 +1021,10 @@ document.getElementById('photo-input').addEventListener('change', (e) => handleC
 document.getElementById('qr-photo-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
+  toast('Looking for the QR code...', { timeout: 0 });
   try {
     const text = await decodeQrFromFile(file);
+    document.getElementById('toast').classList.remove('show');
     if (text) handleQrText(text);
     else toast('No QR code found in that photo. Try again closer up.');
   } catch {

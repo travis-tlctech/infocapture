@@ -19,7 +19,9 @@ export async function prepareImage(file, { maxEdge = 1500, quality = 0.85 } = {}
   return { blob, width, height };
 }
 
-async function loadBitmap(file) {
+// An ImageBitmap, or an <img> where the browser cannot make one from this
+// file. Either way EXIF orientation is applied.
+export async function loadBitmap(file) {
   if ('createImageBitmap' in window) {
     try {
       return await createImageBitmap(file, { imageOrientation: 'from-image' });

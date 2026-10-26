@@ -119,6 +119,35 @@ test('scan a vCard badge, add notes and tags, and it lands in the team list', as
   await expect(page.locator('.item')).toHaveCount(1);
 });
 
+test('when the camera shows nothing until a tap (some iPhones), the scanner offers one', async ({ page }) => {
+  await setup(page);
+  // Refuse the first play() and show no picture until the person taps.
+  await page.addInitScript(() => {
+    const play = HTMLMediaElement.prototype.play;
+    const width = Object.getOwnPropertyDescriptor(HTMLVideoElement.prototype, 'videoWidth');
+    let refused = false;
+    let tapped = false;
+    HTMLMediaElement.prototype.play = function () {
+      if (this.id === 'scan-video') {
+        if (!refused) {
+          refused = true;
+          return Promise.reject(new DOMException('Tap first', 'NotAllowedError'));
+        }
+        tapped = true;
+      }
+      return play.call(this);
+    };
+    Object.defineProperty(HTMLVideoElement.prototype, 'videoWidth', {
+      get() { return this.id === 'scan-video' && !tapped ? 0 : width.get.call(this); },
+    });
+  });
+  await page.goto('./');
+  await page.getByRole('button', { name: /Scan badge QR/ }).click();
+  await page.getByRole('button', { name: 'Tap to start the camera' }).click();
+  await expect(page).toHaveURL(/#\/c\//, { timeout: 15000 });
+  await expect(page.locator('[name=firstName]')).toHaveValue('Jordan');
+});
+
 test('a card photo is read by the card reader without losing typed notes', async ({ page }) => {
   const { fake, reader, session } = await setup(page, {
     readerDelay: 1200,

@@ -239,6 +239,7 @@ h1, h2, h3 { margin: 0; line-height: 1.25; }
 .scan-top { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; padding: calc(env(safe-area-inset-top) + 12px) 14px 0; }
 .scan-hint { position: absolute; left: 16px; right: 16px; top: calc(45% + min(36vw, 36vh, 170px) + 22px); text-align: center; font-weight: 600; text-shadow: 0 1px 3px #000; margin: 0; }
 .scan.failed .scan-frame { display: none; }
+.scan .camera-tap { position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%); z-index: 2; }
 .scan.failed .scan-hint { top: 35%; }
 .scan-bottom { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; padding: 0 16px calc(env(safe-area-inset-bottom) + 20px); }
 
