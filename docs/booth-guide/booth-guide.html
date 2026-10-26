@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>InfoCapture at the booth</title>
+<!-- One-page guide for whoever staffs the booth (Asana S2.3). Build the PDF
+     with: npm run guide (it also draws the QR code that opens the app). -->
+<style>
+  @font-face { font-family: 'Montserrat'; font-weight: 600 800; src: url('../../app/fonts/montserrat-latin.woff2') format('woff2'); }
+  @font-face { font-family: 'Open Sans'; font-weight: 400 600; src: url('../../app/fonts/open-sans-latin.woff2') format('woff2'); }
+  @page { size: Letter; margin: 0; }
+  :root {
+    --navy: #0F2557; --navy-deep: #081937; --azure-deep: #1D4ED8; --cyan: #6FF2FF; --cyan-deep: #0891B2;
+    --mist: #F2F5F9; --light-blue: #DCE5F2; --text: #1F2937; --gray: #4B5563; --divider: #D5DCE6;
+    --ok: #15803D; --warn: #B45309; --error: #B91C1C;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    width: 8.5in; height: 11in; overflow: hidden;
+    font: 8.9pt/1.36 'Open Sans', sans-serif; color: var(--text); background: #fff;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  header {
+    background: var(--navy); color: #fff; padding: 0.28in 0.5in 0.24in;
+    display: flex; align-items: center; gap: 14px;
+  }
+  header svg { width: 44px; height: 44px; flex: none; }
+  header h1 { font: 800 21pt/1.1 'Montserrat', sans-serif; margin: 0; }
+  header p { margin: 2px 0 0; color: var(--light-blue); font-size: 9.5pt; }
+  main { display: grid; grid-template-columns: 1fr 2.35in; gap: 0.28in; padding: 0.24in 0.5in 0; }
+  h2 {
+    font: 700 10.5pt/1.2 'Montserrat', sans-serif; color: var(--navy); margin: 0 0 4px;
+    padding-bottom: 3px; border-bottom: 2px solid var(--light-blue);
+  }
+  h2 small { font: 600 8pt 'Open Sans', sans-serif; color: var(--gray); margin-left: 6px; }
+  section { margin-bottom: 8px; }
+  ol, ul { margin: 0; padding-left: 16px; }
+  li { margin: 1.5px 0; }
+  p { margin: 2px 0; }
+  b { font-weight: 600; color: var(--navy); }
+  code { font: 600 8.6pt 'Open Sans', sans-serif; color: var(--cyan-deep); }
+  .ways { display: grid; gap: 5px; margin-top: 4px; }
+  .way { border-left: 3px solid var(--azure-deep); background: var(--mist); padding: 4px 8px; border-radius: 0 6px 6px 0; }
+  .way strong { font: 700 9.5pt 'Montserrat', sans-serif; color: var(--navy); }
+  .pills { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: baseline; margin-top: 3px; }
+  .pill { font: 600 8pt 'Open Sans', sans-serif; border: 1px solid currentColor; border-radius: 99px; padding: 0 7px; white-space: nowrap; justify-self: start; }
+  .pill.ok { color: var(--ok); } .pill.warn { color: var(--warn); } .pill.bad { color: var(--error); }
+  .tip { background: var(--light-blue); border-radius: 6px; padding: 5px 8px; margin-top: 5px; }
+  aside { position: relative; }
+  .qr { margin: 0 0 12px; padding: 9px; border: 2px solid var(--light-blue); border-radius: 12px; text-align: center; }
+  .qr #app-qr { width: 1.3in; height: 1.3in; margin: 0 auto; }
+  .qr svg { display: block; width: 100%; height: 100%; }
+  .qr figcaption { margin-top: 6px; font: 700 8.6pt/1.25 'Montserrat', sans-serif; color: var(--navy); }
+  .phone { position: relative; border: 6px solid var(--navy-deep); border-radius: 20px; overflow: hidden; }
+  .phone img { display: block; width: 100%; }
+  .mark {
+    position: absolute; width: 17px; height: 17px; margin: -8.5px 0 0 -8.5px; border-radius: 50%;
+    background: var(--cyan-deep); color: #fff; font: 700 9pt/17px 'Montserrat', sans-serif; text-align: center;
+    box-shadow: 0 0 0 2px #fff;
+  }
+  .legend { margin: 8px 0 0; padding: 0; list-style: none; font-size: 8.4pt; }
+  .legend li { display: flex; gap: 6px; margin: 3px 0; }
+  .legend i { flex: none; font: 700 8pt/15px 'Montserrat', sans-serif; font-style: normal; width: 15px; height: 15px; border-radius: 50%; background: var(--cyan-deep); color: #fff; text-align: center; }
+  footer {
+    position: absolute; left: 0.5in; right: 0.5in; bottom: 0.32in;
+    display: flex; justify-content: space-between; align-items: center;
+    border-top: 1px solid var(--divider); padding-top: 7px; color: var(--gray); font-size: 8.2pt;
+  }
+  footer .by { display: flex; align-items: center; gap: 6px; }
+  footer img { height: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <svg viewBox="0 0 512 512" aria-hidden="true"><defs><filter id="g" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="9" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><rect width="512" height="512" rx="112" fill="#081937"/><g filter="url(#g)"><path d="M102 182V102h80M330 102h80v80M102 330v80h80M330 410h80v-80" fill="none" stroke="#6FF2FF" stroke-width="28"/><rect x="160" y="192" width="192" height="128" rx="20" fill="#6FF2FF"/></g><circle cx="210" cy="243" r="22" fill="#081937"/><rect x="172" y="272" width="76" height="34" rx="17" fill="#081937"/><rect x="256" y="231" width="72" height="11" rx="5.5" fill="#081937"/><rect x="256" y="262" width="54" height="11" rx="5.5" fill="#081937"/></svg>
+  <div>
+    <h1>InfoCapture at the booth</h1>
+    <p>Scan a badge or snap a business card. Every contact lands in the team list.</p>
+  </div>
+</header>
+
+<main>
+  <div>
+    <section>
+      <h2>The day before <small>about 5 minutes, on your iPhone</small></h2>
+      <ol>
+        <li>Open the <b>Camera</b> app, point it at the QR code on the right and tap the link that appears. (Or open <b>Safari</b> and go to <code>travis-tlctech.github.io/infocapture</code>.)</li>
+        <li>Tap <b>Share</b> (the square with an arrow), then <b>Add to Home Screen</b>, then <b>Add</b>. From now on, open InfoCapture from this icon, not from Safari.</li>
+        <li>Open the app and tap the settings icon (top right). Sign in with the email and password Travis gave you.</li>
+        <li>Under <b>Capturing</b>, fill in <b>Your name</b> and the <b>Current event</b>, then tap <b>Save settings</b>.</li>
+        <li>Tap <b>Test connection</b>. You should see green ticks for <b>On the team</b> and <b>Card reader is working</b>. Anything in red: tell Travis.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Before doors open</h2>
+      <p>Open the app. Check the event bar <b>(A)</b> shows today's event (tap it to change it) and the top corner <b>(B)</b> says <b>Synced</b>.</p>
+    </section>
+
+    <section>
+      <h2>Capture a contact <small>three ways</small></h2>
+      <div class="ways">
+        <div class="way"><strong>Snap card (C)</strong>: take a photo of the business card, or of the badge. Start typing notes straight away; the name, company and the rest fill in a few seconds later. Shaded fields came from the card. A field marked <b>check</b> is one the reader wasn't sure of, so compare it with the photo. If the card lists two people, tap <b>Add as a contact</b> for the second one.</div>
+        <div class="way"><strong>Scan QR (D)</strong>: hold the badge's QR code inside the frame. If no camera picture appears, tap <b>Tap to start the camera</b>. If the app says <b>This badge code has no contact details in it</b>, the code is only an attendee number for the organiser's own app: go back and use <b>Snap card</b> on the badge instead.</div>
+        <div class="way"><strong>Type it in (E)</strong>: no card and no badge. Type what you have.</div>
+      </div>
+      <p style="margin-top:5px">Then tap the tags that fit (<b>Hot lead</b>, <b>Follow up</b>, <b>Send info</b>...), add a note about the conversation, and tap <b>Save contact</b>. If the app says <b>Already captured</b>, you have this person already: tap <b>Open</b> and add to that one instead.</p>
+    </section>
+
+    <section>
+      <h2>The status in the top corner (B)</h2>
+      <div class="pills">
+        <span class="pill ok">Synced</span><span>Everything is in the team list. Each contact in your list shows a green tick <b>(F)</b>.</span>
+        <span class="pill warn">3 to send</span><span>Saved on your phone and waiting for signal ("3 offline" when there is none). They send on their own; keep capturing.</span>
+        <span class="pill warn">Sign in</span><span>Tap it and sign in again.</span>
+        <span class="pill bad">Sync issue</span><span>Tap <b>Retry</b>. If it stays, tell Travis.</span>
+      </div>
+      <div class="tip">While anything is waiting to send, don't sign out and don't delete the app from your Home Screen. Contacts that haven't sent yet live only on your phone.</div>
+    </section>
+
+    <section>
+      <h2>After the event</h2>
+      <ul>
+        <li>Tap any contact to fix details or add notes. Changes update the same contact in the team list.</li>
+        <li><b>Settings &gt; Download spreadsheet</b> gives an Excel file with everyone's contacts. Its card photo links work for 7 days; download again for fresh ones.</li>
+        <li>Optional: <b>Settings &gt; Remove synced contacts from this phone</b> clears your list. Nothing leaves the team list.</li>
+      </ul>
+    </section>
+  </div>
+
+  <aside>
+    <figure class="qr">
+      <div id="app-qr" role="img" aria-label="QR code for travis-tlctech.github.io/infocapture"></div>
+      <figcaption>Scan with your iPhone camera to open InfoCapture</figcaption>
+    </figure>
+    <div class="phone">
+      <img src="home.png" alt="The InfoCapture home screen">
+      <span class="mark" style="left:90%;top:16.4%">A</span>
+      <span class="mark" style="left:62%;top:5.3%">B</span>
+      <span class="mark" style="left:91%;top:24%">C</span>
+      <span class="mark" style="left:44.7%;top:41%">D</span>
+      <span class="mark" style="left:92%;top:41%">E</span>
+      <span class="mark" style="left:82%;top:91.5%">F</span>
+    </div>
+    <ul class="legend">
+      <li><i>A</i><span>Event: stamped on every contact. Tap to change.</span></li>
+      <li><i>B</i><span>Sync status. Tap it to sync now.</span></li>
+      <li><i>C</i><span>Snap card: business card or badge photo.</span></li>
+      <li><i>D</i><span>Scan QR: the code on the badge.</span></li>
+      <li><i>E</i><span>Type it in.</span></li>
+      <li><i>F</i><span>Green tick: this contact is in the team list.</span></li>
+    </ul>
+  </aside>
+</main>
+
+<footer>
+  <span>Questions or something not working? Ask Travis.</span>
+  <span class="by">InfoCapture by <img src="../../brand/tlc-trng-horizontal-navy.png" alt="TLC_TRNG"></span>
+</footer>
+</body>
+</html>

@@ -9,7 +9,8 @@
     "test": "node --test \"tests/unit/*.test.mjs\"",
     "test:e2e": "playwright test",
     "vendor": "node scripts/vendor.mjs",
-    "assets": "python3 scripts/make_assets.py"
+    "assets": "python3 scripts/make_assets.py",
+    "guide": "node scripts/booth-guide.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",

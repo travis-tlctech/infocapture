@@ -5,3 +5,4 @@ test-results/
 playwright-report/
 tests/.fixtures/
 .DS_Store
+docs/booth-guide/preview.png

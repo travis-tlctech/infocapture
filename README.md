@@ -118,6 +118,8 @@ The first sync after signing in on a phone (a new phone, the app newly added to 
 
 ## At the conference
 
+A one-page version for whoever staffs the booth, with a QR code that opens the app: [docs/booth-guide/InfoCapture-booth-guide.pdf](docs/booth-guide/InfoCapture-booth-guide.pdf). Edit `docs/booth-guide/booth-guide.html` and run `npm run guide` to rebuild it.
+
 - Set the event once (tap the event bar on the home screen). It is stamped on every contact.
 - **Snap card**: take the photo, start typing notes straight away. Fields fill in a few seconds later; highlighted fields came from the card, so check them.
 - **Scan QR**: hold the badge's QR code in the frame. Name, company, title, email and phone fill in. Add notes, tap tags, **Save**. If the camera picture doesn't appear, tap **Tap to start the camera**.
