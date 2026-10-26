@@ -25,9 +25,15 @@ const SHELL = [
   'js/xlsx.js',
   'vendor/jsQR.min.js',
   'vendor/supabase.min.js',
-  'icons/icon.svg',
+  'icons/favicon-64.png',
   'icons/icon-192.png',
   'icons/apple-touch-icon.png',
+  'icons/tlc-trng-horizontal-navy.png',
+  'icons/tlc-trng-horizontal-gray-white.png',
+  'fonts/montserrat-latin.woff2',
+  'fonts/montserrat-latin-ext.woff2',
+  'fonts/open-sans-latin.woff2',
+  'fonts/open-sans-latin-ext.woff2',
 ];
 
 self.addEventListener('install', (event) => {

@@ -76,7 +76,7 @@ test('scan a vCard badge, add notes and tags, and it lands in the team list', as
   const { fake, user, leaked } = await setup(page);
   await page.goto('./');
   await shot(page, '01-home-empty');
-  await page.getByRole('button', { name: /Scan badge QR/ }).click();
+  await page.getByRole('button', { name: /Scan QR/ }).click();
   await expect(page.locator('#scan-video')).toBeVisible();
 
   await expect(page).toHaveURL(/#\/c\//, { timeout: 15000 });
@@ -112,7 +112,7 @@ test('scan a vCard badge, add notes and tags, and it lands in the team list', as
   expect(leaked).toEqual([]);
 
   // Scanning the same badge again warns about the duplicate.
-  await page.getByRole('button', { name: /Scan badge QR/ }).click();
+  await page.getByRole('button', { name: /Scan QR/ }).click();
   await expect(page.locator('#dup')).toContainText('Already captured Jordan Okafor', { timeout: 15000 });
   page.once('dialog', (d) => d.accept());
   await page.getByRole('button', { name: 'Discard' }).click();
@@ -142,7 +142,7 @@ test('when the camera shows nothing until a tap (some iPhones), the scanner offe
     });
   });
   await page.goto('./');
-  await page.getByRole('button', { name: /Scan badge QR/ }).click();
+  await page.getByRole('button', { name: /Scan QR/ }).click();
   await page.getByRole('button', { name: 'Tap to start the camera' }).click();
   await expect(page).toHaveURL(/#\/c\//, { timeout: 15000 });
   await expect(page.locator('[name=firstName]')).toHaveValue('Jordan');

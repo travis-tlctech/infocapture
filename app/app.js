@@ -18,7 +18,6 @@ const ui = { view: null, scanner: null, form: null, search: '', objectUrls: [], 
 // ---------- helpers ----------
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const LOGO = '<svg class="logo" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="112" fill="#0f766e"/><path d="M102 182V102h80M330 102h80v80M102 330v80h80M330 410h80v-80" fill="none" stroke="#fff" stroke-width="28"/><rect x="160" y="192" width="192" height="128" rx="20" fill="#fff"/><circle cx="210" cy="243" r="22" fill="#0f766e"/><rect x="172" y="272" width="76" height="34" rx="17" fill="#0f766e"/><rect x="256" y="231" width="72" height="11" rx="5.5" fill="#0f766e"/><rect x="256" y="262" width="54" height="11" rx="5.5" fill="#0f766e"/></svg>';
 const icon = (name, cls = '') => `<svg class="icon ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`);
 const now = () => new Date().toISOString();
@@ -189,7 +188,7 @@ async function renderHome() {
   const drafts = records.filter((r) => r.isDraft).length;
   app.innerHTML = `
     <header class="topbar">
-      <div class="brand">${LOGO}<span>InfoCapture</span></div>
+      <div class="brand"><span>InfoCapture</span></div>
       <div class="topbar-actions">
         <span id="sync-pill">${syncPill()}</span>
         <a class="icon-btn" href="#/settings" aria-label="Settings">${icon('sliders')}</a>
@@ -199,9 +198,9 @@ async function renderHome() {
       <button type="button" class="event-chip" data-action="edit-event">${icon('pin')}<span>${s.event ? esc(s.event) : 'Set the event you are at'}</span>${icon('pencil', 'small')}</button>
       <div id="banners">${banners()}</div>
       <section class="capture" aria-label="Capture a contact">
-        <button type="button" class="capture-main" data-action="scan">${icon('qr', 'big')}<span><strong>Scan badge QR</strong><small>Fills in name, company and email</small></span></button>
+        <button type="button" class="capture-main" data-action="card">${icon('card', 'big')}<span><strong>Snap card</strong><small>Business card or badge photo</small></span></button>
         <div class="capture-row">
-          <button type="button" class="capture-btn" data-action="card">${icon('card', 'big')}<strong>Snap card</strong><small>Card or badge photo</small></button>
+          <button type="button" class="capture-btn" data-action="scan">${icon('qr', 'big')}<strong>Scan QR</strong><small>Badge QR code</small></button>
           <button type="button" class="capture-btn" data-action="manual">${icon('pencil', 'big')}<strong>Type it in</strong><small>No card? No problem</small></button>
         </div>
         <button type="button" class="link-btn" data-action="card-library">${icon('image', 'small')} Use a photo you already took</button>
@@ -705,7 +704,8 @@ async function renderSettings() {
         <button type="button" class="btn ghost danger-text" data-action="clear-synced" ${synced ? '' : 'disabled'}>Remove synced contacts from this phone</button>
         <p class="hint">Removes the copies on this phone only. The team list is not touched.</p>
       </section>
-      <p class="version">InfoCapture · <span id="sw-version"></span></p>
+      <div class="signoff"><span>InfoCapture by</span><picture><source srcset="icons/tlc-trng-horizontal-gray-white.png" media="(prefers-color-scheme: dark)"><img src="icons/tlc-trng-horizontal-navy.png" alt="TLC_TRNG" width="131" height="20"></picture></div>
+      <p class="version"><span id="sw-version"></span></p>
     </main>`;
 
   app.querySelector('#sign-in-form')?.addEventListener('submit', async (e) => {

@@ -2,14 +2,15 @@
 
 A lightweight, phone-first web app for capturing leads at conferences. Scan a badge QR code or snap a business card, add a few notes and tags, and the contact lands in your team's shared list, which anyone on the team can download as an Excel spreadsheet.
 
-- **Scan badge QR**: reads vCard, MECARD, BIZCARD, JSON and labelled QR codes instantly, on the phone, even offline.
-- **Snap card**: takes a photo of a business card (or a badge without a usable QR). Claude reads it and fills in the form while you type notes. The photo is kept with the contact.
+- **Snap card** (the big button): takes a photo of a business card (or a badge without a usable QR). Claude reads it and fills in the form while you type notes. The photo is kept with the contact.
+- **Scan QR**: reads vCard, MECARD, BIZCARD, JSON and labelled badge QR codes instantly, on the phone, even offline.
 - **Type it in**: for everyone else.
 - **Notes and quick tags** (Hot lead, Follow up, Send info...), plus the event name and who captured it.
 - **Works offline.** Every capture is saved on the phone first and syncs when there is signal. Nothing waits on the network.
 - **One team list.** Each person signs in with their own login (no Microsoft or Google account needed), and everyone's captures land in one list in Supabase. Edits update the same contact.
 - **Team spreadsheet**: Settings > Download spreadsheet gives an Excel file of everyone's contacts, with links to the card photos.
 - Duplicate warning, CSV and vCard export, "Add to phone contacts", light and dark mode, installable to the home screen.
+- Styled to the TLC_TRNG brand: navy, azure and cyan, Montserrat and Open Sans, and the TLC_TRNG badge as the app icon (see `brand/README.md`).
 
 ## How it fits together
 
@@ -30,6 +31,7 @@ The app talks to Supabase directly with the person's own sign-in. Database rules
 | --- | --- |
 | `app/` | The web app. Plain HTML, CSS and JavaScript modules, no build step. Deploy this folder. |
 | `app/config.js` | The one file to fill in: the Supabase project URL and publishable key, and the card reader URL. |
+| `brand/` | TLC_TRNG logo masters the icons are built from (`npm run assets`). |
 | `supabase/` | `setup.sql` (tables, rules and photo bucket), `add-team-member.sql`, and their tests. |
 | `backend/card-reader/` | The AWS Lambda (Node.js), its CloudFormation template, and the deploy scripts. |
 | `tests/` | Unit tests and browser tests (fake camera, simulated Supabase). |
@@ -115,8 +117,8 @@ Prefer not to commit them? Leave `config.js` blank, enter the values on one phon
 ## At the conference
 
 - Set the event once (tap the event bar on the home screen). It is stamped on every contact.
-- **Scan badge QR**: hold the badge in the frame. Name, company, title, email and phone fill in. Add notes, tap tags, **Save**.
 - **Snap card**: take the photo, start typing notes straight away. Fields fill in a few seconds later; highlighted fields came from the card, so check them.
+- **Scan QR**: hold the badge's QR code in the frame. Name, company, title, email and phone fill in. Add notes, tap tags, **Save**. If the camera picture doesn't appear, tap **Tap to start the camera**.
 - No signal? Keep going. The badge at the top shows how many are waiting, and they sync on their own.
 - Tap any contact later to add notes. Edits update the same contact in the team list. Deleting a contact removes it (and its photo) from the team list.
 
@@ -163,7 +165,7 @@ cd backend/card-reader && npm install && npm test
 ```
 
 - `npm run vendor` rebuilds `app/vendor/` (supabase-js, jsQR) from the pinned versions.
-- `npm run assets` regenerates the icons (needs Python with Pillow).
+- `npm run assets` regenerates the icons and logo images from `brand/` (needs Python with Pillow).
 - When serving from somewhere other than GitHub Pages, replace `__BUILD__` in `app/sw.js` with a new value on each release so phones pick up updates (the Pages workflow does this).
 
 ### Card reader API
