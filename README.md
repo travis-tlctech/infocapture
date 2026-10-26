@@ -19,8 +19,8 @@ A lightweight, phone-first web app for capturing leads at conferences. Scan a ba
  ├─ Microsoft Graph ────────────────── Excel table "InfoCaptureLeads"
  │                                      + "Card Photos" folder beside the workbook
  └─ Card reader (AWS Lambda URL) ────── Claude reads card photos
-        checks the M365 token,          (API key stays in AWS SSM)
-        only your tenant gets in
+        checks the M365 token,          (API key stays in AWS
+        only your tenant gets in         Secrets Manager)
 ```
 
 There is no server for the data: the app writes to Excel directly with the signed-in person's own permissions. The only server piece is the small card reader, because the Claude API key cannot live in a browser.
@@ -143,7 +143,7 @@ Table `InfoCaptureLeads`, one row per contact:
 ## Costs
 
 - GitHub Pages, Microsoft Graph: no extra cost.
-- AWS: Lambda and SSM standard parameters stay inside the free tier at conference volumes.
+- AWS: the Lambda stays inside the free tier at conference volumes; the Secrets Manager secret is about $0.40 a month.
 - Claude: the reader uses `claude-opus-5-5` at low effort, about 1.5 to 2 cents a card (TrainMe measures about 1.6 cents per certificate page), so a conference's worth is a few dollars out of the monthly API credit shared with TrainMe. Set `CLAUDE_MODEL=claude-haiku-5-5` when deploying for a much cheaper, slightly less accurate reader.
 
 ## Privacy and security
