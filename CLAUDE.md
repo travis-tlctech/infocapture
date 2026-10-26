@@ -1,6 +1,6 @@
 # InfoCapture
 
-Phone-first lead capture: scan a badge QR code or snap a business card, add notes and tags, and the contact lands in an Excel table in Microsoft 365. See README.md for setup and architecture.
+Phone-first lead capture: scan a badge QR code or snap a business card, add notes and tags, and the contact lands in the team list in Supabase, which the team downloads as an Excel spreadsheet. See README.md for setup and architecture.
 
 ## Asana (the plan of record)
 
@@ -22,18 +22,27 @@ Phone-first lead capture: scan a badge QR code or snap a business card, add note
 - A new subtask lands at the top of its parent, so create subtasks last to first. Re-attaching a subtask to the same parent does not move it.
 - Comment and notes HTML allows only `<body>`, `<strong>`, `<em>`, `<u>`, `<s>`, `<code>`, `<ol>`, `<ul>`, `<li>`, `<a>`, `<blockquote>`, `<pre>` (notes also allow a few more). Any other tag, `<br/>` especially, breaks it. Use plain newlines. Write `>` as `&gt;` inside HTML. Comments cannot be edited or deleted through the tools.
 
+## Supabase
+
+- Project: https://vdcwyqththjkgbskthcb.supabase.co (Travis's Pro organization, region East US / Ohio). The URL and the publishable key are in `app/config.js`; neither is a secret.
+- Never ask for, read or handle the secret key, the service role key or the database password. Nothing in this repo needs them.
+- Schema and access rules live in `supabase/setup.sql`, written so it is safe to run again. Travis runs it in the dashboard's SQL Editor; say exactly what to paste. `supabase/test/run.sh` checks it and the rules on a local PostgreSQL; run it after any change.
+- Logins: Travis creates each one in the dashboard and adds it to the team with `supabase/add-team-member.sql`. Public sign-ups stay off. Passwords are never posted in chat, Asana or email.
+
 ## Anthropic API key (Travis's rules)
 
 - Never ask Travis for the key, and never read it. He never pastes it into chat, Asana or email.
 - He enters it himself at a hidden prompt in the Terminal app: `backend/card-reader/set-key.sh` (it guards against an empty capture). Check the stored key only by its metadata (name, dates, version count), never its value.
 - The key never goes into browser or phone code; only the card reader Lambda reads it, from AWS Secrets Manager.
 - AWS: account TLC Tech, CLI profile `tlc-tech`, region us-east-2. Leave the `default` profile alone, and ask Travis before creating any new AWS resource.
+- Cloud sessions have no working AWS credentials. Travis runs `set-key.sh` and `bootstrap.sh` on his Mac; after that the card reader deploys from GitHub Actions ("Deploy card reader", with the account number), through the role `infocapture-github-deploy` (no stored AWS keys).
 - Claude Console organization "TLC Tech" holds the shared monthly API credit; this tool's key is `info-capture`.
 - Logs record sizes, timing and token counts only, never what a card says. Background: Anthropic_API_Handoff_for_TLC_Info_Capture_Tool.md in the project folder.
 
 ## Development
 
-- `npm install`, then `npm start` (http://localhost:8080), `npm test` (unit), `npm run test:e2e` (browser tests; needs ffmpeg and Playwright's Chromium).
-- Card reader: `cd backend/card-reader && npm install && npm test`.
-- The app in `app/` has no build step. `npm run vendor` rebuilds `app/vendor/` from pinned versions; `npm run assets` rebuilds icons and the Excel template.
-- Run the unit, browser and card reader tests before every push. CI runs all three on every branch except main; the Pages workflow deploys main.
+- `npm install`, then `npm start` (http://localhost:8080), `npm test` (unit), `npm run test:e2e` (browser tests; needs ffmpeg and Playwright's Chromium). The browser tests replace `config.js` and block every real Supabase address, so they never touch the live project.
+- Card reader: `cd backend/card-reader && npm install && npm test`. Database: `supabase/test/run.sh`.
+- The app in `app/` has no build step. `npm run vendor` rebuilds `app/vendor/` (supabase-js, jsQR) from pinned versions; `npm run assets` rebuilds the icons.
+- Run the unit, browser, card reader and database tests before every push. CI runs all four on every branch except main; the Pages workflow deploys main.
+- Work happens on the claude branch. Update `main` (which publishes the app) only with Travis's OK.

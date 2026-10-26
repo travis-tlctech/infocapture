@@ -15,31 +15,30 @@ export const CONTACT_FIELDS = [
 
 export const CONTACT_KEYS = CONTACT_FIELDS.map((f) => f.key);
 
-// Spreadsheet / CSV columns, most useful first. The header text is how the
-// app finds each column in Excel, so columns can be reordered (or extra
-// columns added) in the workbook without breaking sync.
+// Columns of the team spreadsheet and the CSV export, most useful first.
+// width is the Excel column width in characters.
 export const COLUMNS = [
-  { key: 'createdAt', header: 'Captured At', kind: 'date' },
-  { key: 'firstName', header: 'First Name' },
-  { key: 'lastName', header: 'Last Name' },
-  { key: 'company', header: 'Company' },
-  { key: 'title', header: 'Title' },
-  { key: 'email', header: 'Email' },
-  { key: 'phone', header: 'Phone', kind: 'phone' },
-  { key: 'tags', header: 'Tags', kind: 'list' },
-  { key: 'notes', header: 'Notes' },
-  { key: 'event', header: 'Event' },
-  { key: 'capturedBy', header: 'Captured By' },
-  { key: 'source', header: 'Source' },
-  { key: 'phoneAlt', header: 'Other Phone', kind: 'phone' },
-  { key: 'website', header: 'Website' },
-  { key: 'linkedin', header: 'LinkedIn' },
-  { key: 'address', header: 'Address' },
-  { key: 'other', header: 'Other Info' },
-  { key: 'cardImageUrl', header: 'Card Photo', kind: 'link' },
-  { key: 'qrRaw', header: 'QR Data' },
-  { key: 'updatedAt', header: 'Updated At', kind: 'date' },
-  { key: 'id', header: 'ID' },
+  { key: 'createdAt', header: 'Captured At', kind: 'date', width: 17 },
+  { key: 'firstName', header: 'First Name', width: 14 },
+  { key: 'lastName', header: 'Last Name', width: 16 },
+  { key: 'company', header: 'Company', width: 24 },
+  { key: 'title', header: 'Title', width: 24 },
+  { key: 'email', header: 'Email', width: 30 },
+  { key: 'phone', header: 'Phone', kind: 'phone', width: 17 },
+  { key: 'tags', header: 'Tags', kind: 'list', width: 20 },
+  { key: 'notes', header: 'Notes', width: 40 },
+  { key: 'event', header: 'Event', width: 20 },
+  { key: 'capturedBy', header: 'Captured By', width: 16 },
+  { key: 'source', header: 'Source', kind: 'source', width: 11 },
+  { key: 'phoneAlt', header: 'Other Phone', kind: 'phone', width: 17 },
+  { key: 'website', header: 'Website', width: 24 },
+  { key: 'linkedin', header: 'LinkedIn', width: 24 },
+  { key: 'address', header: 'Address', width: 30 },
+  { key: 'other', header: 'Other Info', width: 30 },
+  { key: 'cardPhotoPath', header: 'Card Photo', kind: 'photo', width: 12 },
+  { key: 'qrRaw', header: 'QR Data', width: 20 },
+  { key: 'updatedAt', header: 'Updated At', kind: 'date', width: 17 },
+  { key: 'id', header: 'ID', width: 38 },
 ];
 
 export const SOURCE_LABELS = { qr: 'Badge QR', card: 'Card photo', manual: 'Typed' };

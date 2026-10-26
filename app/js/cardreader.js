@@ -1,16 +1,18 @@
 // Client for the card reader Lambda (backend/card-reader). It sends a card
 // or badge photo, or unrecognised QR text, and gets contact fields back.
-// Requests carry the person's Microsoft 365 access token; the Lambda only
-// answers people signed in to your tenant.
+// Requests carry the person's Supabase access token; the Lambda only
+// answers signed-in members of the InfoCapture team.
 
 import { blobToBase64 } from './image.js';
 import { NetworkError } from './auth.js';
 
 export class CardReaderError extends Error {
-  constructor(message, status = 0) {
+  constructor(message, status = 0, retryable = [502, 503, 504].includes(status)) {
     super(message);
     this.name = 'CardReaderError';
     this.status = status;
+    // Busy or slow, not wrong: worth one more try at the next sync.
+    this.retryable = retryable;
   }
 }
 
@@ -26,7 +28,7 @@ async function call(url, token, payload, timeoutMs = 80000) {
       signal: controller.signal,
     });
   } catch (err) {
-    if (err.name === 'AbortError') throw new CardReaderError('The card reader took too long. It will try again on the next sync.');
+    if (err.name === 'AbortError') throw new CardReaderError('The card reader took too long. Try again.', 0, true);
     throw new NetworkError('Could not reach the card reader.');
   } finally {
     clearTimeout(timer);

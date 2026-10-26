@@ -306,6 +306,8 @@ details.more[open] > summary { margin-bottom: 8px; }
 .card h2 { font-size: 16px; margin: 0 0 12px; }
 .card h2:not(:first-child) { margin-top: 18px; }
 .card .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0; }
+.card .row .btn { flex: none; white-space: nowrap; }
+.card .row > span { min-width: 0; overflow-wrap: anywhere; }
 .card .field input { font-size: 16px; }
 .row-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .muted { color: var(--muted); }
@@ -314,6 +316,9 @@ details.more[open] > summary { margin-bottom: 8px; }
 .checks .ok { color: var(--ok); }
 .checks .bad { color: var(--danger); }
 .checks .icon { margin-top: 1px; }
+.bad-text { color: var(--danger); display: flex; gap: 8px; align-items: flex-start; font-size: 14px; margin: 8px 0 0; }
+.bad-text .icon { margin-top: 1px; }
+#sign-in-form .row-buttons { margin-top: 4px; }
 .version { text-align: center; color: var(--muted); font-size: 12px; }
 
 /* ---------- toast ---------- */

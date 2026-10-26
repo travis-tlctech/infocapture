@@ -1,55 +1,60 @@
 import { test, expect } from '@playwright/test';
 import { join } from 'node:path';
-import { FakeGraph } from '../support/fake-graph.mjs';
+import { FakeSupabase, TEST_URL, TEST_KEY } from '../support/fake-supabase.mjs';
+import { unzip } from '../support/unzip.mjs';
 import { FIXTURES } from './global-setup.mjs';
 
 const CORS = {
   'access-control-allow-origin': '*',
-  'access-control-allow-headers': 'authorization, content-type, prefer',
-  'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE',
+  'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, HEAD',
+  'access-control-expose-headers': 'content-range',
 };
+const cors = (req) => ({ ...CORS, 'access-control-allow-headers': req.headers()['access-control-request-headers'] || 'authorization, content-type' });
 
 const SETTINGS = {
-  tenantId: '11111111-2222-3333-4444-555555555555',
-  clientId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+  supabaseUrl: TEST_URL,
+  supabaseKey: TEST_KEY,
   cardReaderUrl: 'https://reader.test/',
-  workbook: '/InfoCapture/InfoCapture Leads.xlsx',
   event: 'Expo 2026',
   capturedBy: 'Travis',
 };
+const EMAIL = 'travis@example.com';
+const PASSWORD = 'correct horse';
 
 const shot = (page, name) => page.screenshot({ path: join(FIXTURES, 'screens', `${name}.png`) });
 
-// Wires a page to the fake Graph and a fake card reader, with a signed-in
-// stand-in for MSAL.
-async function setup(page, { settings = SETTINGS, signedIn = true, readerFields = {}, readerReply = null, readerDelay = 300 } = {}) {
-  const graph = new FakeGraph();
+// Wires a page to a fake Supabase and a fake card reader. signedIn seeds a
+// session the way supabase-js stores one after a real sign-in.
+async function setup(page, { settings = SETTINGS, signedIn = true, member = true, readerFields = {}, readerReply = null, readerDelay = 300 } = {}) {
+  const fake = new FakeSupabase();
+  const user = fake.addUser({ email: EMAIL, password: PASSWORD, member });
+  const session = signedIn ? fake.createSession(user) : null;
   const reader = { calls: [] };
-  await page.addInitScript(({ settings, signedIn }) => {
+  const leaked = [];
+  await page.addInitScript(({ settings, session }) => {
     if (!sessionStorage.getItem('seeded')) {
       localStorage.setItem('infocapture.settings', JSON.stringify(settings));
       localStorage.setItem('infocapture.installHintDismissed', 'true');
+      if (session) localStorage.setItem('infocapture.auth', JSON.stringify(session));
       sessionStorage.setItem('seeded', '1');
     }
-    if (signedIn) {
-      window.__INFOCAPTURE_TEST_AUTH__ = {
-        account: { name: 'Travis Test', username: 'travis@contoso.example' },
-        getToken: async (scopes) => `token-for-${scopes.join('+')}`,
-      };
-    }
-  }, { settings, signedIn });
+  }, { settings, session });
 
-  await page.route('https://graph.microsoft.com/**', async (route) => {
+  // The real config.js points at the live project; tests never touch it.
+  await page.route('**/config.js', (route) => route.fulfill({ contentType: 'text/javascript', body: "export default { supabaseUrl: '', supabaseKey: '', cardReaderUrl: '' };" }));
+  await page.route('https://*.supabase.co/**', (route) => {
+    leaked.push(route.request().url());
+    return route.abort();
+  });
+  await page.route(`${TEST_URL}/**`, async (route) => {
     const req = route.request();
-    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: CORS });
-    const isJson = (req.headers()['content-type'] || '').includes('json');
-    const body = isJson ? req.postData() : req.postDataBuffer();
-    const res = await graph.handle(req.method(), req.url(), req.headers(), body ?? undefined);
-    await route.fulfill({ status: res.status, headers: { ...res.headers, ...CORS }, body: res.body });
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors(req) });
+    const res = fake.handle(req.method(), req.url(), req.headers(), req.postDataBuffer() ?? undefined);
+    await route.fulfill({ status: res.status, headers: { ...res.headers, ...cors(req) }, body: res.body });
   });
   await page.route('https://reader.test/**', async (route) => {
     const req = route.request();
-    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: CORS });
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors(req) });
     const body = req.postDataJSON();
     reader.calls.push({ body, auth: req.headers().authorization });
     await new Promise((r) => setTimeout(r, readerDelay));
@@ -62,13 +67,13 @@ async function setup(page, { settings = SETTINGS, signedIn = true, readerFields 
     }
     await route.fulfill({ status: 200, headers: { ...CORS, 'content-type': 'application/json' }, body: JSON.stringify(payload) });
   });
-  return { graph, reader };
+  return { fake, reader, session, user, leaked };
 }
 
 const syncPill = (page) => page.locator('.sync-pill');
 
-test('scan a vCard badge, add notes and tags, and it lands in Excel', async ({ page }) => {
-  const { graph } = await setup(page);
+test('scan a vCard badge, add notes and tags, and it lands in the team list', async ({ page }) => {
+  const { fake, user, leaked } = await setup(page);
   await page.goto('./');
   await shot(page, '01-home-empty');
   await page.getByRole('button', { name: /Scan badge QR/ }).click();
@@ -92,17 +97,19 @@ test('scan a vCard badge, add notes and tags, and it lands in Excel', async ({ p
   await expect(syncPill(page)).toContainText('Synced', { timeout: 10000 });
   await shot(page, '03-home-synced');
 
-  const [row] = graph.rowsAsObjects();
-  expect(row['First Name']).toBe('Jordan');
-  expect(row.Company).toBe('Northwind Traders');
-  expect(row.Notes).toBe('Runs onboarding for 400 staff. Send pricing.');
-  expect(row.Tags).toBe('Hot lead, Send info');
-  expect(row.Event).toBe('Expo 2026');
-  expect(row['Captured By']).toBe('Travis');
-  expect(row.Source).toBe('qr');
-  expect(row.Phone).toBe("'+1 312 555 0147");
-  expect(row['QR Data']).toContain('BEGIN:VCARD');
-  expect(graph.requests.every((r) => r.method !== 'GET' || !r.url.includes('/content'))).toBe(true);
+  const [row] = fake.rows();
+  expect(row.first_name).toBe('Jordan');
+  expect(row.company).toBe('Northwind Traders');
+  expect(row.notes).toBe('Runs onboarding for 400 staff. Send pricing.');
+  expect(row.tags).toEqual(['Hot lead', 'Send info']);
+  expect(row.event).toBe('Expo 2026');
+  expect(row.captured_by).toBe('Travis');
+  expect(row.source).toBe('qr');
+  expect(row.phone).toBe('+1 312 555 0147');
+  expect(row.qr_data).toContain('BEGIN:VCARD');
+  expect(row.created_by).toBe(user.id);
+  expect(fake.objects.size).toBe(0);
+  expect(leaked).toEqual([]);
 
   // Scanning the same badge again warns about the duplicate.
   await page.getByRole('button', { name: /Scan badge QR/ }).click();
@@ -113,7 +120,7 @@ test('scan a vCard badge, add notes and tags, and it lands in Excel', async ({ p
 });
 
 test('a card photo is read by the card reader without losing typed notes', async ({ page }) => {
-  const { graph, reader } = await setup(page, {
+  const { fake, reader, session } = await setup(page, {
     readerDelay: 1200,
     readerFields: { firstName: 'Priya', lastName: 'Raman', title: 'VP, People Operations', company: 'Contoso Health', email: 'priya.raman@contoso-health.example', phone: '+1 646 555 0188', phoneAlt: '+1 646 555 0100', website: '', linkedin: '', address: '', other: '' },
   });
@@ -136,21 +143,21 @@ test('a card photo is read by the card reader without losing typed notes', async
   expect(reader.calls[0].body.action).toBe('card');
   expect(reader.calls[0].body.mediaType).toBe('image/jpeg');
   expect(reader.calls[0].body.image.length).toBeGreaterThan(5000);
-  expect(reader.calls[0].auth).toBe(`Bearer token-for-api://${SETTINGS.clientId}/access_as_user`);
+  expect(reader.calls[0].auth).toBe(`Bearer ${session.access_token}`);
 
   await page.getByRole('button', { name: /Save contact/ }).click();
   await expect(syncPill(page)).toContainText('Synced', { timeout: 10000 });
-  const [row] = graph.rowsAsObjects();
-  expect(row.Title).toBe('Chief People Officer');
-  expect(row.Notes).toBe('Met at the keynote');
-  expect(row['Card Photo']).toMatch(/^=HYPERLINK\("https:\/\/contoso\.sharepoint\.com\/InfoCapture\/Card%20Photos\//);
-  const photo = [...graph.items.values()].find((i) => i.path.startsWith('InfoCapture/Card Photos/'));
-  expect(photo.name).toMatch(/Priya Raman Contoso Health/);
+  const [row] = fake.rows();
+  expect(row.title).toBe('Chief People Officer');
+  expect(row.notes).toBe('Met at the keynote');
+  expect(row.card_photo).toBe(`${row.id}.jpg`);
+  const photo = fake.objects.get(row.card_photo);
   expect(photo.contentType).toBe('image/jpeg');
+  expect(photo.size).toBeGreaterThan(5000);
 });
 
 test('a card with two people and unsure fields; an unreadable card stays calm', async ({ page }) => {
-  const { graph } = await setup(page, {
+  const { fake } = await setup(page, {
     readerReply: (body, n) => n === 1
       ? {
         ok: true,
@@ -181,10 +188,11 @@ test('a card with two people and unsure fields; an unreadable card stays calm', 
   await expect(page.locator('.card-photo img')).toBeVisible();
   await page.getByRole('button', { name: /Save contact/ }).click();
   await expect(syncPill(page)).toContainText('Synced', { timeout: 10000 });
-  const rows = graph.rowsAsObjects();
-  expect(rows.map((r) => r['First Name']).sort()).toEqual(['Priya', 'Sam']);
-  expect(rows.find((r) => r['First Name'] === 'Priya').Email).toBe('priya.raman@contoso-health.example');
-  expect(rows.every((r) => /^=HYPERLINK/.test(r['Card Photo']))).toBe(true);
+  const rows = fake.rows();
+  expect(rows.map((r) => r.first_name).sort()).toEqual(['Priya', 'Sam']);
+  expect(rows.find((r) => r.first_name === 'Priya').email).toBe('priya.raman@contoso-health.example');
+  expect(rows.every((r) => fake.objects.has(r.card_photo))).toBe(true);
+  expect(fake.objects.size).toBe(2);
 
   chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: /Snap card/ }).click();
@@ -194,7 +202,7 @@ test('a card with two people and unsure fields; an unreadable card stays calm', 
 });
 
 test('captures made offline sync when the phone reconnects, card read included', async ({ page, context }) => {
-  const { graph, reader } = await setup(page, { readerFields: { firstName: 'Offline', lastName: 'Card', company: 'Later Inc' } });
+  const { fake, reader } = await setup(page, { readerFields: { firstName: 'Offline', lastName: 'Card', company: 'Later Inc' } });
   await page.goto('./');
   await context.setOffline(true);
 
@@ -212,18 +220,18 @@ test('captures made offline sync when the phone reconnects, card read included',
 
   await expect(syncPill(page)).toContainText('2 offline');
   await shot(page, '05-home-offline');
-  expect(graph.rowsAsObjects()).toHaveLength(0);
+  expect(fake.rows()).toHaveLength(0);
 
   await context.setOffline(false);
   await expect(syncPill(page)).toContainText('Synced', { timeout: 15000 });
-  const rows = graph.rowsAsObjects();
-  expect(rows.map((r) => r['First Name'])).toEqual(['Maya', 'Offline']);
-  expect(rows[1].Company).toBe('Later Inc');
+  const rows = fake.rows();
+  expect(rows.map((r) => r.first_name)).toEqual(['Maya', 'Offline']);
+  expect(rows[1].company).toBe('Later Inc');
   expect(reader.calls).toHaveLength(1);
 });
 
-test('editing and deleting a synced contact updates the same Excel row', async ({ page }) => {
-  const { graph } = await setup(page);
+test('editing and deleting a synced contact updates the same row', async ({ page }) => {
+  const { fake } = await setup(page);
   await page.goto('./');
   for (const name of ['Ann', 'Bo']) {
     await page.getByRole('button', { name: /Type it in/ }).click();
@@ -235,18 +243,18 @@ test('editing and deleting a synced contact updates the same Excel row', async (
   await page.locator('[name=notes]').fill('Edited after the show');
   await page.getByRole('button', { name: 'Done' }).click();
   await expect(syncPill(page)).toContainText('Synced', { timeout: 10000 });
-  await expect.poll(() => graph.rowsAsObjects().find((r) => r['First Name'] === 'Ann')?.Notes).toBe('Edited after the show');
-  expect(graph.rowsAsObjects()).toHaveLength(2);
+  await expect.poll(() => fake.rows().find((r) => r.first_name === 'Ann')?.notes).toBe('Edited after the show');
+  expect(fake.rows()).toHaveLength(2);
 
   await page.locator('.item', { hasText: 'Ann' }).click();
   page.once('dialog', (d) => d.accept());
   await page.getByRole('button', { name: 'Delete contact' }).click();
   await expect(page.locator('.item')).toHaveCount(1);
-  await expect.poll(() => graph.rowsAsObjects().map((r) => r['First Name'])).toEqual(['Bo']);
+  await expect.poll(() => fake.rows().map((r) => r.first_name)).toEqual(['Bo']);
 });
 
 test('unrecognised QR text from a photo goes to the card reader', async ({ page }) => {
-  const { graph, reader } = await setup(page, {
+  const { fake, reader } = await setup(page, {
     readerFields: (body) => (body.action === 'text' ? { firstName: 'Wei', lastName: 'Chen', company: 'Fabrikam Inc', title: 'Operations Lead', email: 'wei.chen@fabrikam.example' } : {}),
   });
   await page.goto('./#/scan');
@@ -258,13 +266,13 @@ test('unrecognised QR text from a photo goes to the card reader', async ({ page 
   expect(reader.calls[0].body).toEqual({ action: 'text', text: 'Wei^Chen^Fabrikam Inc^Operations Lead^wei.chen@fabrikam.example' });
   await page.getByRole('button', { name: /Save contact/ }).click();
   await expect(syncPill(page)).toContainText('Synced', { timeout: 10000 });
-  expect(graph.rowsAsObjects()[0].Title).toBe('Operations Lead');
+  expect(fake.rows()[0].title).toBe('Operations Lead');
 });
 
-test('without Microsoft 365 set up, captures stay on the phone and export to CSV', async ({ page }) => {
+test('without a connection set up, captures stay on the phone and export to CSV', async ({ page }) => {
   await setup(page, { settings: { event: 'Local only' }, signedIn: false });
   await page.goto('./');
-  await expect(page.locator('#banners')).toContainText('Not connected to Microsoft 365');
+  await expect(page.locator('#banners')).toContainText('Not connected yet');
   await page.getByRole('button', { name: /Type it in/ }).click();
   await page.locator('[name=firstName]').fill('Local');
   await page.locator('[name=company]').fill('Only Ltd');
@@ -282,12 +290,15 @@ test('without Microsoft 365 set up, captures stay on the phone and export to CSV
 
 test('setup links fill in the connection settings', async ({ page }) => {
   await setup(page, { settings: {}, signedIn: false });
-  const data = Buffer.from(JSON.stringify({ v: 1, tenantId: SETTINGS.tenantId, clientId: SETTINGS.clientId, workbook: 'https://contoso.sharepoint.com/:x:/s/sales/EaBcD' })).toString('base64url');
+  const data = Buffer.from(JSON.stringify({ v: 2, supabaseUrl: TEST_URL, supabaseKey: TEST_KEY, cardReaderUrl: 'https://reader.test/' })).toString('base64url');
   page.on('dialog', (d) => d.accept());
   await page.goto(`./#setup=${data}`);
   await expect(page).toHaveURL(/#\/settings$/);
-  await expect(page.locator('[name=tenantId]')).toHaveValue(SETTINGS.tenantId);
-  await expect(page.locator('[name=workbook]')).toHaveValue('https://contoso.sharepoint.com/:x:/s/sales/EaBcD');
+  await expect(page.locator('[name=supabaseUrl]')).toHaveValue(TEST_URL);
+  await expect(page.locator('[name=supabaseKey]')).toHaveValue(TEST_KEY);
+  await expect(page.locator('[name=cardReaderUrl]')).toHaveValue('https://reader.test/');
+  // Connected now, so the account card asks for a sign-in.
+  await expect(page.locator('#sign-in-form [name=email]')).toBeVisible();
 });
 
 test('dark mode screenshots', async ({ page }) => {
@@ -303,4 +314,83 @@ test('dark mode screenshots', async ({ page }) => {
   await page.getByRole('button', { name: /Save contact/ }).click();
   await expect(syncPill(page)).toContainText('Synced', { timeout: 10000 });
   await shot(page, '08-home-dark');
+});
+
+test('sign in on the phone; a login that is not on the team is told so', async ({ page }) => {
+  const { fake } = await setup(page, { signedIn: false });
+  fake.addUser({ email: 'outsider@example.com', password: 'other pass', member: false });
+  await page.goto('./');
+  await expect(page.locator('#banners')).toContainText('Sign in so your contacts reach the team list');
+  await page.locator('#banners').getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.locator('#sign-in-form [name=email]')).toBeFocused();
+
+  await page.locator('[name=email]').fill(EMAIL);
+  await page.locator('[name=password]').fill('wrong');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.locator('#sign-in-result')).toContainText('That email and password did not match');
+  await page.locator('[name=password]').fill(PASSWORD);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.locator('#account')).toContainText(`Signed in as ${EMAIL}`);
+  await expect(page.locator('#team-note')).toBeEmpty();
+  await shot(page, '10-settings-signed-in');
+  // The session supabase-js stored is picked up again after a reload.
+  await page.reload();
+  await expect(page.locator('#account')).toContainText(`Signed in as ${EMAIL}`);
+
+  await page.getByRole('button', { name: 'Test connection' }).click();
+  await expect(page.locator('#test-result')).toContainText('On the team. The team list has 0 contacts.');
+
+  await page.goto('./#/');
+  await page.getByRole('button', { name: /Type it in/ }).click();
+  await page.locator('[name=firstName]').fill('Signed');
+  await page.getByRole('button', { name: /Save contact/ }).click();
+  await expect(syncPill(page)).toContainText('Synced', { timeout: 10000 });
+  expect(fake.rows().map((r) => r.first_name)).toEqual(['Signed']);
+
+  // Signing out keeps captures; another login without team access is warned.
+  await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await page.locator('[name=email]').fill('outsider@example.com');
+  await page.locator('[name=password]').fill('other pass');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.locator('#team-note')).toContainText("isn't on the InfoCapture team yet");
+  await page.goto('./#/');
+  await page.getByRole('button', { name: /Type it in/ }).click();
+  await page.locator('[name=firstName]').fill('Blocked');
+  await page.getByRole('button', { name: /Save contact/ }).click();
+  await expect(page.locator('#banners')).toContainText("isn't on the InfoCapture team yet", { timeout: 10000 });
+  expect(fake.rows().map((r) => r.first_name)).toEqual(['Signed']);
+});
+
+test('the team spreadsheet has everyone\'s contacts with photo links', async ({ page }) => {
+  const { fake } = await setup(page);
+  // A colleague's contact, captured on another phone.
+  fake.leads.set('22222222-2222-4222-8222-222222222222', {
+    id: '22222222-2222-4222-8222-222222222222', captured_at: '2026-10-20T14:00:00.000Z', updated_at: '2026-10-20T14:00:00.000Z',
+    first_name: 'Sam', last_name: 'Lee', company: 'Contoso Health', captured_by: 'Colleague', source: 'card', tags: ['Partner'],
+    card_photo: '22222222-2222-4222-8222-222222222222.jpg', notes: '', email: '', title: '', phone: '', event: 'Expo 2026',
+  });
+  fake.objects.set('22222222-2222-4222-8222-222222222222.jpg', { contentType: 'image/jpeg', size: 9000 });
+  await page.goto('./');
+  await page.getByRole('button', { name: /Type it in/ }).click();
+  await page.locator('[name=firstName]').fill('Mine');
+  await page.getByRole('button', { name: /Save contact/ }).click();
+  await expect(syncPill(page)).toContainText('Synced', { timeout: 10000 });
+
+  await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: /Download spreadsheet/ }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toMatch(/^InfoCapture leads \d{4}-\d{2}-\d{2}\.xlsx$/);
+  const bytes = await (await file.createReadStream()).toArray().then((c) => Buffer.concat(c));
+  const files = unzip(bytes);
+  const sheet = files.get('xl/worksheets/sheet1.xml');
+  expect(sheet).toContain('>Sam</t>');
+  expect(sheet).toContain('>Colleague</t>');
+  expect(sheet).toContain('>Mine</t>');
+  expect(sheet).toContain('>View photo</t>');
+  expect(files.get('xl/worksheets/_rels/sheet1.xml.rels')).toContain(`${TEST_URL}/storage/v1/object/sign/card-photos/22222222-2222-4222-8222-222222222222.jpg?token=signed-604800`);
+  expect(files.get('xl/tables/table1.xml')).toContain('ref="A1:U3"');
+  await expect(page.locator('#toast')).toContainText('Spreadsheet ready: 2 contacts');
 });

@@ -1,7 +1,7 @@
 {
   "name": "InfoCapture",
   "short_name": "InfoCapture",
-  "description": "Quick capture for conference badges and business cards, synced to Excel.",
+  "description": "Quick capture for conference badges and business cards, shared with your team.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

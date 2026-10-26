@@ -1,0 +1,42 @@
+name: Deploy card reader
+
+# Run by hand (Actions > Deploy card reader > Run workflow). Signs in to AWS
+# as the infocapture-github-deploy role that backend/card-reader/bootstrap.sh
+# created; no AWS keys are stored in GitHub.
+on:
+  workflow_dispatch:
+    inputs:
+      aws_account_id:
+        description: TLC Tech AWS account number (bootstrap.sh prints it)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: card-reader-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: card-reader
+    steps:
+      - name: Check the account number
+        env:
+          ACCOUNT: ${{ inputs.aws_account_id }}
+        run: '[[ "$ACCOUNT" =~ ^[0-9]{12}$ ]] || { echo "The AWS account number is 12 digits."; exit 1; }'
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ inputs.aws_account_id }}:role/infocapture-github-deploy
+          aws-region: us-east-2
+      - name: Test, build and deploy
+        run: ./backend/card-reader/deploy.sh
+        env:
+          AWS_CREDENTIALS_FROM_ENV: '1'

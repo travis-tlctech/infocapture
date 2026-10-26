@@ -1,6 +1,6 @@
 // InfoCapture card reader: an AWS Lambda behind a function URL.
 //
-// POST JSON with a Microsoft 365 access token (Authorization: Bearer ...):
+// POST JSON with the person's Supabase access token (Authorization: Bearer ...):
 //   { "action": "card", "mediaType": "image/jpeg", "image": "<base64>" }
 //   { "action": "text", "text": "<QR text>" }
 //   { "action": "ping" }
@@ -8,8 +8,8 @@
 // "fields": <first contact's fields>, "unreadable": "" } or
 // { "ok": false, "error": "..." }. "unreadable" names why nothing came back
 // (declined, cut_off, no_answer, nothing_found); the app treats that as
-// "couldn't read this card", not as an error. Only signed-in users of your
-// Entra tenant who were granted the access_as_user scope get an answer.
+// "couldn't read this card", not as an error. Only signed-in members of the
+// InfoCapture team (public.team_members in Supabase) get an answer.
 
 import Anthropic from '@anthropic-ai/sdk';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
@@ -18,21 +18,37 @@ import { readCardImage, readQrText, IMAGE_TYPES } from './extract.mjs';
 const MAX_IMAGE_BASE64 = 5 * 1024 * 1024; // Claude's per-image limit is 5 MB
 const MAX_TEXT = 4000;
 
-export function makeTokenVerifier({ tenantId, clientId, scope = 'access_as_user', keySet }) {
-  if (!tenantId || !clientId) throw new Error('TENANT_ID and CLIENT_ID must be set');
-  const jwks = keySet ?? createRemoteJWKSet(new URL(`https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`));
-  // v2 tokens use the client id as audience; v1 tokens (the default for a
-  // new app registration) use the Application ID URI.
-  const options = {
-    issuer: [`https://login.microsoftonline.com/${tenantId}/v2.0`, `https://sts.windows.net/${tenantId}/`],
-    audience: [clientId, `api://${clientId}`],
-    algorithms: ['RS256'],
-    clockTolerance: 60,
-  };
+export class NotOnTeamError extends Error {}
+export class TeamCheckError extends Error {}
+
+// Checks a Supabase access token: signed with the project's key (from its
+// public key set), issued by its Auth server to a signed-in user, and that
+// user is on the team. Membership is asked of the database with the
+// person's own token and remembered for a few minutes.
+export function makeTokenVerifier({ supabaseUrl, publishableKey, keySet, fetchImpl = fetch, cacheMs = 5 * 60_000, now = Date.now }) {
+  if (!supabaseUrl || !publishableKey) throw new Error('SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY must be set');
+  const base = supabaseUrl.replace(/\/+$/, '');
+  const jwks = keySet ?? createRemoteJWKSet(new URL(`${base}/auth/v1/.well-known/jwks.json`));
+  const options = { issuer: `${base}/auth/v1`, audience: 'authenticated', algorithms: ['ES256', 'RS256'], clockTolerance: 60 };
+  const members = new Map(); // user id -> when membership was confirmed
   return async (token) => {
     const { payload } = await jwtVerify(token, jwks, options);
-    if (payload.tid !== tenantId) throw new Error('token is for another tenant');
-    if (!String(payload.scp ?? '').split(' ').includes(scope)) throw new Error(`token lacks the ${scope} scope`);
+    if (payload.role !== 'authenticated' || !payload.sub) throw new Error('not a signed-in user');
+    const seen = members.get(payload.sub);
+    if (seen !== undefined && now() - seen < cacheMs) return payload;
+    let res;
+    try {
+      res = await fetchImpl(`${base}/rest/v1/rpc/is_team_member`, {
+        method: 'POST',
+        headers: { apikey: publishableKey, authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: '{}',
+      });
+    } catch (err) {
+      throw new TeamCheckError(`team check failed: ${err.name}`);
+    }
+    if (!res.ok) throw new TeamCheckError(`team check failed (${res.status})`);
+    if ((await res.json()) !== true) throw new NotOnTeamError('not on the team');
+    members.set(payload.sub, now());
     return payload;
   };
 }
@@ -68,7 +84,9 @@ export function createHandler({ verifyToken, getClient, model, effort = 'low', l
       await verifyToken(token);
     } catch (err) {
       log.warn?.(JSON.stringify({ msg: 'rejected token', reason: err.message }));
-      return reply(401, { ok: false, error: 'Sign in to Microsoft 365 again to use the card reader.' });
+      if (err instanceof NotOnTeamError) return reply(403, { ok: false, error: "This login isn't on the InfoCapture team yet." });
+      if (err instanceof TeamCheckError) return reply(503, { ok: false, error: 'The card reader could not check your sign-in. Try again in a minute.' });
+      return reply(401, { ok: false, error: 'Sign in again to use the card reader.' });
     }
 
     let body;
@@ -115,7 +133,7 @@ export function createHandler({ verifyToken, getClient, model, effort = 'low', l
       }));
       return reply(200, { ok: true, contacts: result.contacts, fields: result.contacts[0]?.fields ?? {}, unreadable: result.unreadable });
     } catch (err) {
-      if (err instanceof Anthropic.RateLimitError) return reply(503, { ok: false, error: 'The card reader is busy. It will try again on the next sync.' });
+      if (err instanceof Anthropic.RateLimitError) return reply(503, { ok: false, error: 'The card reader is busy. Try again in a minute.' });
       if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
         log.error?.(JSON.stringify({ msg: 'Claude API key rejected', status: err.status }));
         return reply(500, { ok: false, error: 'The card reader is not configured correctly (API key).' });
@@ -133,9 +151,9 @@ export function createHandler({ verifyToken, getClient, model, effort = 'low', l
 
 let clientPromise;
 export const handler = createHandler({
-  verifyToken: process.env.TENANT_ID
-    ? makeTokenVerifier({ tenantId: process.env.TENANT_ID, clientId: process.env.CLIENT_ID })
-    : async () => { throw new Error('TENANT_ID is not set'); },
+  verifyToken: process.env.SUPABASE_URL
+    ? makeTokenVerifier({ supabaseUrl: process.env.SUPABASE_URL, publishableKey: process.env.SUPABASE_PUBLISHABLE_KEY })
+    : async () => { throw new Error('SUPABASE_URL is not set'); },
   getClient: (refresh) => {
     if (refresh || !clientPromise) {
       clientPromise = readApiKey()

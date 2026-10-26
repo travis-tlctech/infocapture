@@ -5,22 +5,28 @@ import { createHandler, makeTokenVerifier } from '../src/index.mjs';
 import Anthropic from '@anthropic-ai/sdk';
 import { CARD_SCHEMA, SYSTEM_PROMPT, checkEntry } from '../src/extract.mjs';
 
-const TENANT = '11111111-2222-3333-4444-555555555555';
-const CLIENT = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+const SUPABASE = 'https://test.supabase.co';
+const KEY = 'sb_publishable_test';
 
-const { publicKey, privateKey } = await generateKeyPair('RS256');
-const jwk = { ...(await exportJWK(publicKey)), kid: 'test-key', alg: 'RS256', use: 'sig' };
+// Supabase signs access tokens with an ES256 key it publishes as a key set.
+const { publicKey, privateKey } = await generateKeyPair('ES256');
+const jwk = { ...(await exportJWK(publicKey)), kid: 'test-key', alg: 'ES256', use: 'sig' };
 const keySet = createLocalJWKSet({ keys: [jwk] });
-const verifyToken = makeTokenVerifier({ tenantId: TENANT, clientId: CLIENT, keySet });
 
-function token(claims = {}, { issuer = `https://login.microsoftonline.com/${TENANT}/v2.0`, audience = CLIENT, exp = '1h' } = {}) {
-  return new SignJWT({ tid: TENANT, scp: 'access_as_user', oid: 'user-1', ...claims })
-    .setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
+// Stands in for is_team_member(): only user-1 is on the team.
+const subOf = (bearer) => JSON.parse(Buffer.from(bearer.split('.')[1], 'base64url')).sub;
+const teamFetch = async (url, init) => new Response(JSON.stringify(subOf(init.headers.authorization) === 'user-1'), { status: 200 });
+const verifyToken = makeTokenVerifier({ supabaseUrl: SUPABASE, publishableKey: KEY, keySet, fetchImpl: teamFetch });
+
+function token({ sub = 'user-1', ...claims } = {}, { issuer = `${SUPABASE}/auth/v1`, audience = 'authenticated', exp = '1h', key = privateKey } = {}) {
+  return new SignJWT({ role: 'authenticated', email: 'ana@example.com', ...claims })
+    .setProtectedHeader({ alg: 'ES256', kid: 'test-key' })
+    .setSubject(sub)
     .setIssuer(issuer)
     .setAudience(audience)
     .setIssuedAt()
     .setExpirationTime(exp)
-    .sign(privateKey);
+    .sign(key);
 }
 
 function fakeClient(reply) {
@@ -109,34 +115,53 @@ test('omits fallbacks for models that do not support them', async () => {
   assert.equal(client.calls[0].betas, undefined);
 });
 
-test('accepts v1 tokens (sts.windows.net issuer, api:// audience)', async () => {
-  const tok = await token({}, { issuer: `https://sts.windows.net/${TENANT}/`, audience: `api://${CLIENT}` });
+test('asks the database whether the person is on the team, and remembers it for a few minutes', async () => {
+  let t = 0;
+  const calls = [];
+  const verify = makeTokenVerifier({
+    supabaseUrl: `${SUPABASE}/`, publishableKey: KEY, keySet, now: () => t,
+    fetchImpl: async (url, init) => { calls.push({ url, init }); return new Response('true'); },
+  });
+  const tok = await token();
+  await verify(tok);
+  await verify(tok);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, `${SUPABASE}/rest/v1/rpc/is_team_member`);
+  assert.equal(calls[0].init.headers.apikey, KEY);
+  assert.equal(calls[0].init.headers.authorization, `Bearer ${tok}`);
+  t += 6 * 60_000;
+  await verify(tok);
+  assert.equal(calls.length, 2);
+
   const res = await makeHandler(fakeClient(okReply))(event({ action: 'ping' }, tok));
   assert.equal(res.statusCode, 200);
   assert.equal(JSON.parse(res.body).model, 'claude-opus-5-5');
 });
 
-test('rejects missing, foreign, expired and unscoped tokens', async () => {
+test('a signed-in person who is not on the team gets a 403; a failed team check a 503', async () => {
+  const res = await makeHandler(fakeClient(okReply))(event({ action: 'card', image: 'AAAA' }, await token({ sub: 'user-2' })));
+  assert.equal(res.statusCode, 403);
+  assert.match(JSON.parse(res.body).error, /isn't on the InfoCapture team/);
+  const unreachable = makeTokenVerifier({ supabaseUrl: SUPABASE, publishableKey: KEY, keySet, fetchImpl: async () => { throw new TypeError('fetch failed'); } });
+  const down = createHandler({ verifyToken: unreachable, getClient: async () => fakeClient(okReply), model: 'claude-opus-5-5', log: silent });
+  assert.equal((await down(event({ action: 'ping' }, await token()))).statusCode, 503);
+});
+
+test('rejects missing, foreign, expired, anonymous and forged tokens', async () => {
   const handler = makeHandler(fakeClient(okReply));
   const cases = [
     undefined,
-    await token({ tid: '99999999-2222-3333-4444-555555555555' }),
-    await token({}, { audience: 'some-other-app' }),
-    await token({}, { issuer: 'https://login.microsoftonline.com/other/v2.0' }),
-    await token({ scp: 'User.Read' }),
+    'not-a-jwt',
+    await token({}, { issuer: 'https://other.supabase.co/auth/v1' }),
+    await token({}, { audience: 'anon' }),
+    await token({ role: 'anon' }),
     await token({}, { exp: Math.floor(Date.now() / 1000) - 600 }),
+    await token({}, { key: (await generateKeyPair('ES256')).privateKey }),
   ];
   for (const tok of cases) {
     const res = await handler(event({ action: 'ping' }, tok));
-    assert.equal(res.statusCode, 401);
+    assert.equal(res.statusCode, 401, String(tok).slice(0, 20));
   }
-  const forged = await new SignJWT({ tid: TENANT, scp: 'access_as_user' })
-    .setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
-    .setIssuer(`https://login.microsoftonline.com/${TENANT}/v2.0`)
-    .setAudience(CLIENT)
-    .setExpirationTime('1h')
-    .sign((await generateKeyPair('RS256')).privateKey);
-  assert.equal((await handler(event({ action: 'ping' }, forged))).statusCode, 401);
 });
 
 test('validates input', async () => {

@@ -1,24 +1,16 @@
-// InfoCapture deployment settings. Fill these in once (see README.md,
-// "Set up Microsoft 365" and "Deploy the card reader") so teammates only
+// InfoCapture deployment settings (see README.md, "Setup"), so teammates only
 // have to open the app and sign in. Anything entered on the app's Settings
-// screen overrides these values on that one device.
+// screen overrides these values on that one device. None of these are
+// secrets: the publishable key is meant for browsers, and the database rules
+// (supabase/setup.sql) let only signed-in team members in.
 export default {
-  // Entra admin center > Overview > Tenant ID
-  tenantId: '',
+  // Supabase > Project Settings > API > Project URL
+  supabaseUrl: 'https://vdcwyqththjkgbskthcb.supabase.co',
 
-  // Entra admin center > App registrations > InfoCapture > Application (client) ID
-  clientId: '',
+  // Supabase > Project Settings > API Keys > Publishable key
+  supabaseKey: 'sb_publishable_1kx6CyINd7l1HNBrAc36hQ_AUoyBrDO',
 
-  // Scope the app requests for the card reader. Leave blank to use
-  // api://<clientId>/access_as_user (the value the README sets up).
-  apiScope: '',
-
-  // "CardReaderUrl" output of the CloudFormation stack (a Lambda function URL).
+  // "CardReaderUrl" output of the card reader stack (a Lambda function URL).
   // Leave blank to skip automatic card reading; photos are still saved.
   cardReaderUrl: '',
-
-  // Where contacts are written. Either a path in the signed-in person's
-  // OneDrive (created on first sync), or a sharing link to a workbook in
-  // SharePoint/OneDrive so a whole team writes to one file.
-  workbook: '/InfoCapture/InfoCapture Leads.xlsx',
 };

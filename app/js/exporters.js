@@ -1,6 +1,23 @@
-// CSV and vCard exports of what is stored on this device.
+// Exports: the team spreadsheet (everyone's contacts, as .xlsx), and CSV and
+// vCard files of what is stored on this device.
 
-import { COLUMNS, excelDate, displayName } from './fields.js';
+import { COLUMNS, SOURCE_LABELS, excelDate, displayName } from './fields.js';
+import { buildXlsx } from './xlsx.js';
+
+// records: contacts from the team list; photoLinks: card photo path -> link.
+export function teamWorkbook(records, photoLinks = new Map()) {
+  const rows = records.map((rec) =>
+    COLUMNS.map((c) => {
+      const v = rec[c.key];
+      if (c.kind === 'list') return (v ?? []).join(', ');
+      if (c.kind === 'source') return SOURCE_LABELS[v] ?? v ?? '';
+      if (c.kind === 'photo') return v && photoLinks.get(v) ? { url: photoLinks.get(v), text: 'View photo' } : '';
+      return v ?? '';
+    }),
+  );
+  const columns = COLUMNS.map((c) => ({ header: c.header, width: c.width, kind: c.kind === 'photo' ? 'link' : c.kind === 'date' ? 'date' : 'text' }));
+  return buildXlsx({ columns, rows, sheetName: 'Leads', tableName: 'InfoCaptureLeads' });
+}
 
 export function toCsv(records) {
   const lines = [COLUMNS.map((c) => csvCell(c.header)).join(',')];

@@ -149,10 +149,12 @@ test('splitName', () => {
   assert.deepEqual(splitName('Cher'), { firstName: 'Cher', lastName: '' });
 });
 
-test('setup links round-trip and ignore unknown keys', () => {
-  const encoded = encodeSetup({ tenantId: 't-1', clientId: 'c-1', workbook: 'https://contoso.sharepoint.com/:x:/s/a/Eb?e=1', cardReaderUrl: 'https://r.example/', event: 'not shared' });
+test('setup links round-trip, ignore unknown keys and old Microsoft 365 links', () => {
+  const encoded = encodeSetup({ supabaseUrl: 'https://abc.supabase.co', supabaseKey: 'sb_publishable_x', cardReaderUrl: 'https://r.example/', event: 'not shared', tenantId: 'old' });
   const decoded = decodeSetup(`https://app.example/#setup=${encoded}`);
-  assert.deepEqual(decoded, { tenantId: 't-1', clientId: 'c-1', cardReaderUrl: 'https://r.example/', workbook: 'https://contoso.sharepoint.com/:x:/s/a/Eb?e=1' });
+  assert.deepEqual(decoded, { supabaseUrl: 'https://abc.supabase.co', supabaseKey: 'sb_publishable_x', cardReaderUrl: 'https://r.example/' });
+  const v1 = Buffer.from(JSON.stringify({ v: 1, tenantId: 't-1', clientId: 'c-1' })).toString('base64url');
+  assert.equal(decodeSetup(`#setup=${v1}`), null);
   assert.equal(decodeSetup('#/c/123'), null);
   assert.equal(decodeSetup('#setup=garbage!!'), null);
 });

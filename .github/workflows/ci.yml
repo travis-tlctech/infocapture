@@ -20,7 +20,7 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           sudo apt-get install -y ffmpeg
-      - name: Browser tests (fake camera, simulated Microsoft Graph)
+      - name: Browser tests (fake camera, simulated Supabase)
         run: npm run test:e2e
         env:
           CI: 'true'
@@ -38,3 +38,10 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+
+  database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Supabase setup script and access rules (local PostgreSQL)
+        run: supabase/test/run.sh

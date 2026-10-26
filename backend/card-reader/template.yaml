@@ -1,18 +1,18 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
   InfoCapture card reader. A Lambda function URL that reads business card and
-  badge photos with Claude. Only accepts Microsoft 365 access tokens issued by
-  your Entra tenant for the InfoCapture app registration.
+  badge photos with Claude. Only answers people signed in to the InfoCapture
+  Supabase project who are on its team.
 
 Parameters:
-  TenantId:
+  SupabaseUrl:
     Type: String
-    Description: Entra tenant (directory) ID
-    AllowedPattern: '[0-9a-fA-F-]{36}'
-  ClientId:
+    Description: Supabase project URL (app/config.js supabaseUrl)
+    AllowedPattern: 'https://[a-z0-9]+\.supabase\.co'
+  SupabasePublishableKey:
     Type: String
-    Description: Application (client) ID of the InfoCapture app registration
-    AllowedPattern: '[0-9a-fA-F-]{36}'
+    Description: Supabase publishable key (app/config.js supabaseKey); not a secret
+    AllowedPattern: 'sb_publishable_[A-Za-z0-9_-]+'
   AllowedOrigins:
     Type: String
     Description: Comma-separated web origins allowed to call the reader (where the app is hosted)
@@ -73,8 +73,8 @@ Resources:
       ReservedConcurrentExecutions: !If [CapConcurrency, !Ref ReservedConcurrency, !Ref AWS::NoValue]
       Environment:
         Variables:
-          TENANT_ID: !Ref TenantId
-          CLIENT_ID: !Ref ClientId
+          SUPABASE_URL: !Ref SupabaseUrl
+          SUPABASE_PUBLISHABLE_KEY: !Ref SupabasePublishableKey
           API_KEY_SECRET: !Ref ApiKeySecretName
           CLAUDE_MODEL: !Ref ClaudeModel
           CLAUDE_EFFORT: !Ref ClaudeEffort
@@ -89,8 +89,8 @@ Resources:
     Type: AWS::Lambda::Url
     Properties:
       TargetFunctionArn: !GetAtt CardReaderFunction.Arn
-      # The function checks the Microsoft 365 token itself, so the URL is
-      # public at the AWS level.
+      # The function checks the Supabase sign-in itself, so the URL is public
+      # at the AWS level.
       AuthType: NONE
       Cors:
         AllowOrigins: !Split [',', !Ref AllowedOrigins]

@@ -1,13 +1,11 @@
-// Microsoft 365 sign-in with MSAL.js (authorization code flow with PKCE).
-// Tokens are cached in localStorage so people stay signed in between
-// sessions; capturing never waits on sign-in, only syncing does.
+// Sign-in with Supabase Auth (email and password; the admin creates each
+// login). The session lives in localStorage and refreshes in the background,
+// so people stay signed in; capturing never waits on sign-in, only syncing.
 
-export const GRAPH_SCOPES = ['User.Read', 'Files.ReadWrite.All'];
-
-const NETWORK_CODES = new Set(['no_network_connectivity', 'post_request_failed', 'get_request_failed']);
+export const SESSION_KEY = 'infocapture.auth';
 
 export class AuthRequiredError extends Error {
-  constructor(message = 'Sign in to Microsoft 365 again to keep syncing.') {
+  constructor(message = 'Sign in again to keep syncing.') {
     super(message);
     this.name = 'AuthRequiredError';
   }
@@ -20,98 +18,85 @@ export class NetworkError extends Error {
   }
 }
 
-let pca = null;
-let testAuth = null;
-let redirectError = null;
+let client = null;
+let user = null;
+
+const offline = () => globalThis.navigator?.onLine === false;
+const isNetworkFailure = (err) => err?.name === 'AuthRetryableFetchError' || offline();
+
+function storedUser() {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null')?.user ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export async function initAuth(settings) {
-  // Automated tests inject a stand-in for MSAL before the app loads.
-  testAuth = globalThis.__INFOCAPTURE_TEST_AUTH__ ?? null;
-  if (testAuth) return getAccount();
-  if (!settings.tenantId || !settings.clientId) return null;
-
-  const { PublicClientApplication } = await import('../vendor/msal-browser.min.js');
-  pca = new PublicClientApplication({
-    auth: {
-      clientId: settings.clientId,
-      authority: `https://login.microsoftonline.com/${settings.tenantId}`,
-      // MSAL v5 returns through a small bridge page; see redirect.html.
-      redirectUri: new URL('redirect.html', document.baseURI).href,
-    },
-    cache: { cacheLocation: 'localStorage' },
+  client = null;
+  user = null;
+  if (!settings.supabaseUrl || !settings.supabaseKey) return null;
+  const { createClient } = await import('../vendor/supabase.min.js');
+  client = createClient(settings.supabaseUrl, settings.supabaseKey, {
+    auth: { storageKey: SESSION_KEY, persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
   });
-  await pca.initialize();
-  try {
-    const result = await pca.handleRedirectPromise();
-    if (result?.account) pca.setActiveAccount(result.account);
-  } catch (err) {
-    redirectError = err;
-    console.warn('Microsoft sign-in did not complete', err);
-  }
-  if (!pca.getActiveAccount()) {
-    const [first] = pca.getAllAccounts();
-    if (first) pca.setActiveAccount(first);
-  }
+  // Offline with an expired token the library reports no session, but the
+  // stored one is still good once there is signal; only a real sign-out
+  // (or a refresh the server refuses) clears it.
+  user = storedUser();
+  client.auth.onAuthStateChange((event, session) => {
+    if (session?.user) user = session.user;
+    else if (event === 'SIGNED_OUT') user = null;
+  });
   return getAccount();
 }
 
-export function takeRedirectError() {
-  const err = redirectError;
-  redirectError = null;
-  return err;
-}
-
-export function isAuthReady() {
-  return Boolean(testAuth || pca);
-}
+export const isAuthReady = () => Boolean(client);
+export const getClient = () => client;
 
 export function getAccount() {
-  if (testAuth) return testAuth.account ?? null;
-  const a = pca?.getActiveAccount();
-  return a ? { name: a.name || a.username, username: a.username } : null;
+  if (!user) return null;
+  return { id: user.id, name: user.user_metadata?.name || user.email, username: user.email };
 }
 
-export async function signIn() {
-  if (testAuth) return testAuth.signIn?.();
-  if (!pca) throw new Error('Add the Microsoft 365 tenant and client IDs in Settings first.');
-  await pca.loginRedirect({ scopes: GRAPH_SCOPES, prompt: 'select_account' });
+export async function signIn(email, password) {
+  if (!client) throw new Error('Add the Supabase project URL and publishable key in Settings first.');
+  const { data, error } = await client.auth.signInWithPassword({ email: email.trim(), password });
+  if (error) {
+    if (isNetworkFailure(error)) throw new NetworkError('No connection. Sign in when you have signal.');
+    if (error.code === 'invalid_credentials') throw new Error('That email and password did not match.');
+    if (error.code === 'email_not_confirmed') throw new Error('This login is not confirmed yet. Ask your InfoCapture admin to confirm it in Supabase.');
+    throw new Error(error.message || 'Sign-in failed.');
+  }
+  user = data.user;
+  return getAccount();
 }
 
 export async function signOut() {
-  if (testAuth) return testAuth.signOut?.();
-  const account = pca?.getActiveAccount();
-  if (!account) return;
-  // Clears tokens on this device only; the Microsoft session is untouched.
-  await pca.clearCache({ account });
-  pca.setActiveAccount(null);
+  if (!client) return;
+  // Ends this phone's session only; other devices stay signed in.
+  await client.auth.signOut({ scope: 'local' });
+  user = null;
 }
 
-// Sends the person through Microsoft sign-in again for `scopes` (used when a
-// silent refresh is no longer possible, or consent is needed).
-export async function reauthorize(scopes = GRAPH_SCOPES) {
-  if (testAuth) return testAuth.signIn?.();
-  const account = pca?.getActiveAccount();
-  if (!account) return signIn();
-  await pca.acquireTokenRedirect({ scopes, account });
+export async function getAccessToken() {
+  if (!client || !user) throw new AuthRequiredError('Sign in to sync.');
+  const { data, error } = await client.auth.getSession();
+  if (data?.session?.access_token) return data.session.access_token;
+  if (error && isNetworkFailure(error)) throw new NetworkError();
+  user = storedUser();
+  const e = new AuthRequiredError();
+  e.cause = error;
+  throw e;
 }
 
-async function getToken(scopes) {
-  if (testAuth) return testAuth.getToken(scopes);
-  const account = pca?.getActiveAccount();
-  if (!account) throw new AuthRequiredError('Sign in to Microsoft 365 to sync.');
-  try {
-    const result = await pca.acquireTokenSilent({ scopes, account });
-    return result.accessToken;
-  } catch (err) {
-    if (NETWORK_CODES.has(err?.errorCode) || !navigator.onLine) throw new NetworkError();
-    // Anything else (expired refresh token, consent, blocked iframe on iOS)
-    // needs the person to sign in again.
-    const e = new AuthRequiredError();
-    e.cause = err;
-    e.scopes = scopes;
-    throw e;
+// True when this login is on the InfoCapture team (supabase/add-team-member.sql).
+export async function isTeamMember() {
+  if (!client || !user) return false;
+  const { data, error } = await client.rpc('is_team_member');
+  if (error) {
+    if (error.status === 0 || offline()) throw new NetworkError();
+    throw new Error(error.message);
   }
+  return data === true;
 }
-
-export const getGraphToken = () => getToken(GRAPH_SCOPES);
-export const getApiToken = (settings) => getToken([settings.apiScope]);

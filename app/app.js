@@ -1,14 +1,15 @@
 import * as db from './js/db.js';
-import { getSettings, saveSettings, isM365Configured, getState, setState, DEFAULT_TAGS } from './js/settings.js';
+import { getSettings, saveSettings, isConfigured, getState, setState, DEFAULT_TAGS } from './js/settings.js';
 import * as auth from './js/auth.js';
 import { Syncer, needsSync } from './js/sync.js';
-import { ExcelStore } from './js/excel.js';
+import { NOT_ON_TEAM, fromRow } from './js/store.js';
 import { CONTACT_FIELDS, SOURCE_LABELS, emptyContact, displayName, applyReading } from './js/fields.js';
 import { parseQr, worthAskingCardReader, encodeSetup, decodeSetup } from './js/parsers.js';
 import { QrScanner, decodeQrFromFile } from './js/scanner.js';
 import { prepareImage } from './js/image.js';
 import { readCardPhoto, readQrText, pingCardReader } from './js/cardreader.js';
-import { toCsv, toVCard, shareOrDownload } from './js/exporters.js';
+import { toCsv, toVCard, teamWorkbook, shareOrDownload } from './js/exporters.js';
+import { XLSX_TYPE } from './js/xlsx.js';
 
 const app = document.getElementById('app');
 const syncer = new Syncer();
@@ -22,6 +23,7 @@ const icon = (name, cls = '') => `<svg class="icon ${cls}" aria-hidden="true"><u
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`);
 const now = () => new Date().toISOString();
 const isOnline = () => navigator.onLine;
+const PHOTO_LINK_DAYS = 7; // how long card photo links in a downloaded spreadsheet keep working
 
 function toast(message, { action, onAction, timeout = 3500 } = {}) {
   const el = document.getElementById('toast');
@@ -98,7 +100,7 @@ function newRecord(source, fields = {}) {
     tags: [],
     notes: '',
     qrRaw: '',
-    cardImageUrl: '',
+    cardPhotoPath: '',
     hasImage: false,
     parseStatus: 'none',
     isDraft: true,
@@ -163,12 +165,12 @@ function banners() {
   const s = getSettings();
   const st = syncer.status;
   const out = [];
-  if (!isM365Configured(s)) {
-    out.push(`<div class="banner info">${icon('cloud-off')}<div><strong>Not connected to Microsoft 365 yet.</strong> Captures stay on this phone until it is set up. <a href="#/settings">Open settings</a></div></div>`);
+  if (!isConfigured(s)) {
+    out.push(`<div class="banner info">${icon('cloud-off')}<div><strong>Not connected yet.</strong> Captures stay on this phone until it is set up. <a href="#/settings">Open settings</a></div></div>`);
   } else if (st.state === 'signed-out' || (!auth.getAccount() && auth.isAuthReady())) {
-    out.push(`<div class="banner info">${icon('cloud-off')}<div>Sign in so your contacts go to Excel.</div><button type="button" class="btn small" data-action="sign-in">Sign in</button></div>`);
+    out.push(`<div class="banner info">${icon('cloud-off')}<div>Sign in so your contacts reach the team list.</div><button type="button" class="btn small" data-action="sign-in">Sign in</button></div>`);
   } else if (st.state === 'needs-auth') {
-    out.push(`<div class="banner warn">${icon('alert')}<div>${esc(st.message)}</div><button type="button" class="btn small" data-action="reauth">Sign in</button></div>`);
+    out.push(`<div class="banner warn">${icon('alert')}<div>${esc(st.message)}</div><button type="button" class="btn small" data-action="sign-in">Sign in</button></div>`);
   } else if (st.state === 'error') {
     out.push(`<div class="banner danger">${icon('alert')}<div>${esc(st.message)}</div><button type="button" class="btn small ghost" data-action="sync">Retry</button></div>`);
   }
@@ -242,7 +244,7 @@ function listHtml(records) {
       const sub = [r.title, r.company].filter(Boolean).join(' · ');
       let status;
       if (r.isDraft) status = `<span class="status draft">Unsaved</span>`;
-      else if (r.syncStatus === 'synced') status = `<span class="status ok" title="In Excel">${icon('check', 'small')}</span>`;
+      else if (r.syncStatus === 'synced') status = `<span class="status ok" title="In the team list">${icon('check', 'small')}</span>`;
       else if (r.syncError) status = `<span class="status danger" title="${esc(r.syncError)}">${icon('alert', 'small')}</span>`;
       else status = `<span class="status warn" title="Waiting to sync">${icon('cloud-up', 'small')}</span>`;
       const tags = (r.tags || []).slice(0, 3).map((t) => `<span class="tag">${esc(t)}</span>`).join('');
@@ -320,7 +322,7 @@ async function handleQrText(text) {
 async function readQrInBackground(id, text) {
   const s = getSettings();
   try {
-    const reading = await readQrText(s.cardReaderUrl, await auth.getApiToken(s), text);
+    const reading = await readQrText(s.cardReaderUrl, await auth.getAccessToken(), text);
     await applyReaderFields(id, reading);
   } catch (err) {
     await db.updateRecord(id, (r) => {
@@ -362,10 +364,10 @@ async function readCardInBackground(id) {
   const s = getSettings();
   try {
     const blob = await db.getImage(id);
-    const reading = await readCardPhoto(s.cardReaderUrl, await auth.getApiToken(s), blob);
+    const reading = await readCardPhoto(s.cardReaderUrl, await auth.getAccessToken(), blob);
     await applyReaderFields(id, reading);
   } catch (err) {
-    const retryLater = err instanceof auth.AuthRequiredError || err instanceof auth.NetworkError;
+    const retryLater = err instanceof auth.AuthRequiredError || err instanceof auth.NetworkError || err.retryable;
     await db.updateRecord(id, (r) => {
       r.parseStatus = retryLater ? 'pending' : 'failed';
       r.parseError = retryLater ? '' : err.message;
@@ -422,7 +424,6 @@ async function renderForm(id) {
   if (rec.hasImage) {
     const blob = await db.getImage(id);
     if (blob) imageHtml = `<button type="button" class="card-photo" data-action="zoom-photo"><img src="${trackUrl(URL.createObjectURL(blob))}" alt="Card photo"></button>`;
-    else if (rec.cardImageUrl) imageHtml = `<a class="card-photo-link" href="${esc(rec.cardImageUrl)}" target="_blank" rel="noopener">${icon('image', 'small')} View card photo</a>`;
   }
   const field = (f) => `
     <label class="field${(rec.parsedKeys || []).includes(f.key) ? ' filled' : ''}${(rec.unsureKeys || []).includes(f.key) ? ' unsure' : ''}">
@@ -484,7 +485,7 @@ function qrInfoHtml(rec) {
 }
 
 function syncLine(rec) {
-  if (rec.syncStatus === 'synced') return `${icon('check', 'small')} In Excel${rec.cardImageUrl ? ` · <a href="${esc(rec.cardImageUrl)}" target="_blank" rel="noopener">card photo</a>` : ''}`;
+  if (rec.syncStatus === 'synced') return `${icon('check', 'small')} In the team list`;
   if (rec.syncError) return `${icon('alert', 'small')} Not sent yet: ${esc(rec.syncError)}`;
   return `${icon('cloud-up', 'small')} Waiting to sync`;
 }
@@ -620,6 +621,20 @@ async function addExtraContact(index) {
 
 // ---------- settings ----------
 
+function accountHtml(s, account) {
+  if (!isConfigured(s)) return `<p class="muted">Add the Supabase project URL and publishable key under "Connection" below (or in config.js) to turn on sync.</p>`;
+  if (account) {
+    return `<p class="row"><span>Signed in as <strong>${esc(account.name)}</strong>${account.name !== account.username ? `<br><small>${esc(account.username)}</small>` : ''}</span><button type="button" class="btn small ghost" data-action="sign-out">Sign out</button></p><div id="team-note"></div>`;
+  }
+  return `<form id="sign-in-form" autocomplete="on">
+      <label class="field"><span>Email</span><input name="email" type="email" inputmode="email" autocomplete="username" autocapitalize="off" spellcheck="false" required></label>
+      <label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
+      <div class="row-buttons"><button type="submit" class="btn primary">Sign in</button></div>
+      <div id="sign-in-result"></div>
+      <p class="hint">Your InfoCapture admin creates your login. You stay signed in on this phone until you sign out.</p>
+    </form>`;
+}
+
 async function renderSettings() {
   ui.view = 'settings';
   const s = getSettings();
@@ -628,20 +643,15 @@ async function renderSettings() {
   const synced = records.filter((r) => r.syncStatus === 'synced' && !r.isDraft).length;
   const pending = records.filter(needsSync).length;
   const persisted = await navigator.storage?.persisted?.().catch(() => false);
-  const cachedBook = getState('workbook');
   app.innerHTML = `
     <header class="topbar">
       <button type="button" class="icon-btn" data-action="back" aria-label="Back">${icon('back')}</button>
       <h1>Settings</h1><span></span>
     </header>
     <main class="page settings">
-      <section class="card">
-        <h2>Microsoft 365</h2>
-        ${isM365Configured(s)
-          ? account
-            ? `<p class="row"><span>Signed in as <strong>${esc(account.name)}</strong><br><small>${esc(account.username)}</small></span><button type="button" class="btn small ghost" data-action="sign-out">Sign out</button></p>`
-            : `<p class="row"><span>Not signed in.</span><button type="button" class="btn small primary" data-action="sign-in">Sign in</button></p>`
-          : `<p class="muted">Add the tenant and app IDs under "Connection" below (or in config.js) to turn on sync.</p>`}
+      <section class="card" id="account">
+        <h2>Account</h2>
+        ${accountHtml(s, account)}
       </section>
 
       <form id="settings-form" class="card" autocomplete="off">
@@ -650,17 +660,11 @@ async function renderSettings() {
         <label class="field"><span>Current event</span><input name="event" value="${esc(s.event)}" placeholder="e.g. HR Tech Expo 2026"></label>
         <label class="field"><span>Quick tags (comma separated)</span><input name="tags" value="${esc((s.tags || []).join(', '))}"></label>
 
-        <h2>Excel workbook</h2>
-        <label class="field"><span>OneDrive path or sharing link</span><input name="workbook" value="${esc(s.workbook)}" autocapitalize="off" spellcheck="false"></label>
-        <p class="hint">A path like <code>/InfoCapture/InfoCapture Leads.xlsx</code> is created in your OneDrive on the first sync. For a team, paste a SharePoint or OneDrive "Copy link" link to one shared workbook (everyone needs edit access).</p>
-        ${cachedBook?.webUrl ? `<p><a href="${esc(cachedBook.webUrl)}" target="_blank" rel="noopener" class="btn small ghost">${icon('link', 'small')} Open ${esc(cachedBook.name || 'workbook')}</a></p>` : ''}
-
-        <details class="more"${isM365Configured(s) ? '' : ' open'}>
+        <details class="more"${isConfigured(s) ? '' : ' open'}>
           <summary>Connection</summary>
-          <label class="field"><span>Tenant ID</span><input name="tenantId" value="${esc(s.tenantId)}" autocapitalize="off" spellcheck="false"></label>
-          <label class="field"><span>App (client) ID</span><input name="clientId" value="${esc(s.clientId)}" autocapitalize="off" spellcheck="false"></label>
+          <label class="field"><span>Supabase project URL</span><input name="supabaseUrl" value="${esc(s.supabaseUrl)}" type="url" autocapitalize="off" spellcheck="false" placeholder="https://....supabase.co"></label>
+          <label class="field"><span>Publishable key</span><input name="supabaseKey" value="${esc(s.supabaseKey)}" autocapitalize="off" spellcheck="false" placeholder="sb_publishable_..."></label>
           <label class="field"><span>Card reader URL</span><input name="cardReaderUrl" value="${esc(s.cardReaderUrl)}" type="url" autocapitalize="off" spellcheck="false" placeholder="https://....lambda-url.us-east-2.on.aws/"></label>
-          <label class="field"><span>Card reader scope</span><input name="apiScope" value="${esc(s.apiScope)}" autocapitalize="off" spellcheck="false"></label>
         </details>
         <div class="row-buttons">
           <button type="submit" class="btn primary">Save settings</button>
@@ -670,23 +674,54 @@ async function renderSettings() {
       </form>
 
       <section class="card">
+        <h2>Team spreadsheet</h2>
+        <p class="hint">Everyone's contacts in one Excel file. The card photo links in it work for ${PHOTO_LINK_DAYS} days; download again for fresh ones.</p>
+        <button type="button" class="btn ghost" data-action="download-team" ${account ? '' : 'disabled'}>${icon('download', 'small')} Download spreadsheet</button>
+      </section>
+
+      <section class="card">
         <h2>Team setup</h2>
-        <p class="hint">Send teammates a link that fills in the connection settings on their phone. It holds IDs and URLs only, no passwords or keys.</p>
-        <button type="button" class="btn ghost" data-action="copy-setup" ${isM365Configured(s) ? '' : 'disabled'}>${icon('copy', 'small')} Copy setup link</button>
+        <p class="hint">Send teammates a link that fills in the connection settings on their phone. It holds the addresses and the publishable key only, never a password; each person signs in with their own login.</p>
+        <button type="button" class="btn ghost" data-action="copy-setup" ${isConfigured(s) ? '' : 'disabled'}>${icon('copy', 'small')} Copy setup link</button>
       </section>
 
       <section class="card">
         <h2>On this phone</h2>
-        <p>${records.length} contacts: ${synced} in Excel, ${pending} waiting to sync.${persisted ? '' : ' <small class="muted">(Storage may be cleared by the browser if space runs low. Sync regularly.)</small>'}</p>
+        <p>${records.length} contacts: ${synced} in the team list, ${pending} waiting to sync.${persisted ? '' : ' <small class="muted">(Storage may be cleared by the browser if space runs low. Sync regularly.)</small>'}</p>
         <div class="row-buttons">
           <button type="button" class="btn ghost" data-action="export-csv" ${records.length ? '' : 'disabled'}>${icon('download', 'small')} Export CSV</button>
           <button type="button" class="btn ghost" data-action="export-vcf" ${records.length ? '' : 'disabled'}>${icon('user-plus', 'small')} Export contacts</button>
         </div>
         <button type="button" class="btn ghost danger-text" data-action="clear-synced" ${synced ? '' : 'disabled'}>Remove synced contacts from this phone</button>
-        <p class="hint">Removes the copies on this phone only. Rows in Excel are not touched.</p>
+        <p class="hint">Removes the copies on this phone only. The team list is not touched.</p>
       </section>
       <p class="version">InfoCapture · <span id="sw-version"></span></p>
     </main>`;
+
+  app.querySelector('#sign-in-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const out = form.querySelector('#sign-in-result');
+    const button = form.querySelector('[type=submit]');
+    const { email, password } = Object.fromEntries(new FormData(form));
+    button.disabled = true;
+    out.innerHTML = `<p class="muted">${icon('refresh', 'spin small')} Signing in...</p>`;
+    try {
+      await auth.signIn(email, password);
+    } catch (err) {
+      button.disabled = false;
+      out.innerHTML = `<p class="bad-text">${icon('alert', 'small')} ${esc(err.message)}</p>`;
+      return;
+    }
+    toast('Signed in');
+    await renderSettings();
+    syncer.run();
+  });
+  if (ui.focusSignIn) {
+    ui.focusSignIn = false;
+    app.querySelector('#sign-in-form [name=email]')?.focus();
+  }
+  if (account) showTeamNote();
 
   app.querySelector('#settings-form').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -696,18 +731,11 @@ async function renderSettings() {
       capturedBy: data.capturedBy.trim(),
       event: data.event.trim(),
       tags: data.tags.split(',').map((t) => t.trim()).filter(Boolean),
-      workbook: data.workbook.trim(),
-      tenantId: data.tenantId.trim(),
-      clientId: data.clientId.trim(),
+      supabaseUrl: data.supabaseUrl.trim(),
+      supabaseKey: data.supabaseKey.trim(),
       cardReaderUrl: data.cardReaderUrl.trim(),
-      // A scope that matches the derived default is stored blank so it follows the client ID.
-      apiScope: [`api://${before.clientId}/access_as_user`, `api://${data.clientId.trim()}/access_as_user`].includes(data.apiScope.trim()) ? '' : data.apiScope.trim(),
     });
-    if (next.workbook !== before.workbook) {
-      setState('workbook', null);
-      syncer.store = null;
-    }
-    if (next.tenantId !== before.tenantId || next.clientId !== before.clientId) {
+    if (next.supabaseUrl !== before.supabaseUrl || next.supabaseKey !== before.supabaseKey) {
       toast('Saved. Reloading to apply the new connection...');
       setTimeout(() => location.reload(), 800);
       return;
@@ -718,6 +746,20 @@ async function renderSettings() {
   navigator.serviceWorker?.controller?.postMessage('version');
 }
 
+// A login that exists but was never added to the team can sign in, yet
+// nothing syncs; say so on the account card.
+async function showTeamNote() {
+  if (!isOnline()) return;
+  let member = true;
+  try {
+    member = await auth.isTeamMember();
+  } catch {
+    return;
+  }
+  const el = app.querySelector('#team-note');
+  if (el && !member) el.innerHTML = `<div class="banner warn">${icon('alert')}<div>${esc(NOT_ON_TEAM)}</div></div>`;
+}
+
 async function testConnection() {
   const out = app.querySelector('#test-result');
   const s = getSettings();
@@ -726,31 +768,28 @@ async function testConnection() {
   const ok = (t) => lines.push(`<li class="ok">${icon('check', 'small')} ${t}</li>`);
   const bad = (t) => lines.push(`<li class="bad">${icon('alert', 'small')} ${t}</li>`);
   out.innerHTML = `<p class="muted">${icon('refresh', 'spin small')} Checking...</p>`;
-  if (!isM365Configured(s)) {
-    bad('Tenant ID and App (client) ID are needed. Save them first.');
+  if (!isConfigured(s)) {
+    bad('The Supabase project URL and publishable key are needed. Save them first.');
     return show();
   }
   if (!auth.getAccount()) {
-    bad('Not signed in to Microsoft 365.');
+    bad('Not signed in. Sign in under Account above.');
     return show();
   }
   ok(`Signed in as ${esc(auth.getAccount().username)}`);
   try {
-    const store = new ExcelStore({ getToken: auth.getGraphToken, location: s.workbook });
-    const r = await store.check();
-    setState('workbook', store.item);
-    ok(`Workbook <a href="${esc(r.webUrl)}" target="_blank" rel="noopener">${esc(r.name)}</a> ${r.hasTable ? `has ${r.rows} contact rows` : 'is ready (the table is added on the first sync)'}`);
+    const r = await syncer.getStore().check();
+    if (r.member) ok(`On the team. The team list has ${r.rows} contact${r.rows === 1 ? '' : 's'}.`);
+    else bad(esc(NOT_ON_TEAM));
   } catch (err) {
-    bad(`Excel: ${esc(err.message)}`);
+    bad(`Team list: ${esc(err.message)}`);
   }
   if (s.cardReaderUrl) {
     try {
-      const r = await pingCardReader(s.cardReaderUrl, await auth.getApiToken(s));
+      const r = await pingCardReader(s.cardReaderUrl, await auth.getAccessToken());
       ok(`Card reader is working (${esc(r.model || 'Claude')})`);
     } catch (err) {
-      if (err instanceof auth.AuthRequiredError) {
-        lines.push(`<li class="bad">${icon('alert', 'small')} Card reader needs permission. <button type="button" class="link-btn" data-action="reauth-reader">Grant access</button></li>`);
-      } else bad(`Card reader: ${esc(err.message)}`);
+      bad(`Card reader: ${esc(err.message)}`);
     }
   } else {
     lines.push(`<li class="muted">Card reader not set up (card photos are saved without reading).</li>`);
@@ -760,13 +799,18 @@ async function testConnection() {
 
 // Returns true when the settings were applied (the page then reloads).
 async function applySetup(setup) {
-  const summary = [setup.workbook && `Workbook: ${setup.workbook}`, setup.cardReaderUrl && 'Card reader: on'].filter(Boolean).join('\n');
-  if (!confirm(`Use these InfoCapture connection settings on this phone?\n\n${summary || 'Microsoft 365 connection'}`)) {
+  let host = setup.supabaseUrl || '';
+  try {
+    host = new URL(setup.supabaseUrl).host;
+  } catch {
+    // keep what was given
+  }
+  const summary = [host && `Team list: ${host}`, setup.cardReaderUrl && 'Card reader: on'].filter(Boolean).join('\n');
+  if (!confirm(`Use these InfoCapture connection settings on this phone?\n\n${summary || 'InfoCapture connection'}`)) {
     if (ui.view === 'scan') go('#/', { replace: true });
     return false;
   }
   saveSettings(setup);
-  setState('workbook', null);
   history.replaceState(null, '', `${location.pathname}${location.search}#/settings`);
   location.reload();
   return true;
@@ -826,7 +870,7 @@ const actions = {
   },
   async delete() {
     const r = ui.form.rec;
-    if (!confirm(`Delete ${displayName(r) || 'this contact'}?${r.syncedAt ? ' It is also removed from the Excel workbook.' : ''}`)) return;
+    if (!confirm(`Delete ${displayName(r) || 'this contact'}?${r.syncedAt ? ' It is also removed from the team list.' : ''}`)) return;
     const id = r.id;
     ui.form = null;
     if (r.syncedAt || r.syncAttempted) {
@@ -865,32 +909,38 @@ const actions = {
   },
   sync() {
     const st = syncer.status.state;
-    if (st === 'signed-out') return actions['sign-in']();
-    if (st === 'needs-auth') return actions.reauth();
+    if (st === 'signed-out' || st === 'needs-auth') return actions['sign-in']();
     if (st === 'not-configured') return go('#/settings');
     if (st === 'offline' && !isOnline()) return toast('You are offline. Contacts will sync when you reconnect.');
     toast('Syncing...', { timeout: 1500 });
     syncer.run();
   },
-  async 'sign-in'() {
-    try {
-      await auth.signIn();
-    } catch (err) {
-      toast(err.message);
-    }
-  },
-  async reauth() {
-    await auth.reauthorize(syncer.status.scopes || auth.GRAPH_SCOPES);
-  },
-  async 'reauth-reader'() {
-    await auth.reauthorize([getSettings().apiScope]);
+  'sign-in'() {
+    ui.focusSignIn = true;
+    if (ui.view === 'settings') renderSettings();
+    else go('#/settings');
   },
   async 'sign-out'() {
     if (!confirm('Sign out on this phone? Unsynced contacts stay here and sync after you sign in again.')) return;
     await auth.signOut();
-    setState('workbook', null);
     syncer.store = null;
     renderSettings();
+  },
+  async 'download-team'(btn) {
+    if (!isOnline()) return toast('The team spreadsheet needs a connection.');
+    btn.disabled = true;
+    toast('Building the spreadsheet...', { timeout: 0 });
+    try {
+      const store = syncer.getStore();
+      const records = (await store.listAll()).map(fromRow);
+      const paths = records.map((r) => r.cardPhotoPath).filter(Boolean);
+      const links = paths.length ? await store.signedUrls(paths, PHOTO_LINK_DAYS * 86400) : new Map();
+      const stamp = new Date().toISOString().slice(0, 10);
+      const result = await shareOrDownload(`InfoCapture leads ${stamp}.xlsx`, teamWorkbook(records, links), XLSX_TYPE);
+      toast(result === 'cancelled' ? 'Cancelled' : `Spreadsheet ready: ${records.length} contact${records.length === 1 ? '' : 's'}`);
+    } finally {
+      btn.disabled = false;
+    }
   },
   test: () => testConnection(),
   async 'copy-setup'() {
@@ -917,7 +967,7 @@ const actions = {
   },
   async 'clear-synced'() {
     const recs = (await db.listRecords()).filter((r) => r.syncStatus === 'synced' && !r.isDraft && !r.deleted);
-    if (!confirm(`Remove ${recs.length} synced contacts from this phone? They stay in Excel.`)) return;
+    if (!confirm(`Remove ${recs.length} synced contacts from this phone? They stay in the team list.`)) return;
     for (const r of recs) await db.deleteRecord(r.id);
     await syncer.changed();
     toast(`Removed ${recs.length} from this phone`);
@@ -1017,10 +1067,8 @@ async function start() {
     await auth.initAuth(getSettings());
   } catch (err) {
     console.error(err);
-    toast(`Microsoft sign-in is unavailable: ${err.message}`);
+    toast(`Sign-in is unavailable: ${err.message}`);
   }
-  const redirectError = auth.takeRedirectError();
-  if (redirectError) toast(`Sign-in did not finish: ${redirectError.errorMessage || redirectError.message}`, { timeout: 8000 });
   // A card read cut short (app closed mid-read) is retried by the next sync.
   for (const r of await db.listRecords()) {
     if (r.parseStatus === 'reading') await db.updateRecord(r.id, (x) => { x.parseStatus = x.source === 'card' ? 'pending' : 'none'; });

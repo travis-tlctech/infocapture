@@ -1,24 +1,13 @@
-"""Builds the binary assets the app ships with: PNG icons and the blank
-Excel template. Run from the repo root: python3 scripts/make_assets.py
-Needs Pillow and openpyxl."""
+"""Builds the PNG icons the app ships with.
+Run from the repo root: python3 scripts/make_assets.py (needs Pillow)."""
 from pathlib import Path
 
-from openpyxl import Workbook
-from openpyxl.utils import get_column_letter
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
 ICONS = ROOT / "app" / "icons"
 TEAL = (15, 118, 110)
 WHITE = (255, 255, 255)
-
-# Column widths for the template, matching COLUMNS in app/js/fields.js.
-HEADERS = [
-    ("Captured At", 17), ("First Name", 14), ("Last Name", 16), ("Company", 24), ("Title", 24),
-    ("Email", 28), ("Phone", 17), ("Tags", 20), ("Notes", 48), ("Event", 20), ("Captured By", 16),
-    ("Source", 11), ("Other Phone", 17), ("Website", 24), ("LinkedIn", 28), ("Address", 32),
-    ("Other Info", 28), ("Card Photo", 12), ("QR Data", 24), ("Updated At", 17), ("ID", 38),
-]
 
 
 def draw_icon(size, maskable=False, rounded=True):
@@ -64,25 +53,6 @@ def make_icons():
     draw_icon(180, rounded=False).convert("RGB").save(ICONS / "apple-touch-icon.png")
 
 
-def make_template():
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Leads"  # left blank on purpose: the app adds the table with the first row
-    for i, (_, width) in enumerate(HEADERS, start=1):
-        ws.column_dimensions[get_column_letter(i)].width = width
-    ws.freeze_panes = "A2"
-    about = wb.create_sheet("About")
-    about["A1"] = "InfoCapture leads"
-    about["A3"] = "Contacts captured with the InfoCapture app land in the table on the Leads sheet."
-    about["A4"] = "You can sort, filter, and add your own columns. Keep the column headers as they are so the app can find them."
-    about["A5"] = "Card photos are saved in the 'Card Photos' folder next to this workbook."
-    about.column_dimensions["A"].width = 110
-    out = ROOT / "app" / "template" / "InfoCapture-Leads.xlsx"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    wb.save(out)
-
-
 if __name__ == "__main__":
     make_icons()
-    make_template()
-    print("icons and template written")
+    print("icons written")

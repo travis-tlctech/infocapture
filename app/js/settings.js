@@ -5,7 +5,7 @@ export const DEFAULT_TAGS = ['Hot lead', 'Follow up', 'Send info', 'Book a demo'
 
 // Connection values come from config.js unless this device overrides them
 // on the Settings screen. Capture preferences only live on the device.
-const CONNECTION_KEYS = ['tenantId', 'clientId', 'apiScope', 'cardReaderUrl', 'workbook'];
+export const CONNECTION_KEYS = ['supabaseUrl', 'supabaseKey', 'cardReaderUrl'];
 
 let cache;
 
@@ -22,8 +22,7 @@ export function getSettings() {
   const local = readLocal();
   const merged = { event: '', capturedBy: '', tags: DEFAULT_TAGS, ...local };
   for (const k of CONNECTION_KEYS) merged[k] = (local[k] ?? defaults[k] ?? '').trim();
-  merged.workbook ||= '/InfoCapture/InfoCapture Leads.xlsx';
-  merged.apiScope ||= merged.clientId ? `api://${merged.clientId}/access_as_user` : '';
+  merged.supabaseUrl = merged.supabaseUrl.replace(/\/+$/, '');
   cache = merged;
   return cache;
 }
@@ -44,12 +43,11 @@ export function saveSettings(patch) {
   return getSettings();
 }
 
-export function isM365Configured(s = getSettings()) {
-  return Boolean(s.tenantId && s.clientId);
+export function isConfigured(s = getSettings()) {
+  return Boolean(s.supabaseUrl && s.supabaseKey);
 }
 
-// Small per-device values that are not settings (resolved workbook ids,
-// dismissed hints).
+// Small per-device values that are not settings (dismissed hints).
 export function getState(name, fallback = null) {
   try {
     const raw = localStorage.getItem(`infocapture.${name}`);

@@ -401,12 +401,14 @@ function indexOfOutsideQuotes(s, ch) {
 
 // ---------- team setup links ----------
 
-const SETUP_KEYS = ['tenantId', 'clientId', 'apiScope', 'cardReaderUrl', 'workbook'];
+const SETUP_KEYS = ['supabaseUrl', 'supabaseKey', 'cardReaderUrl'];
+const SETUP_VERSION = 2; // version 1 links carried Microsoft 365 settings
 
 // Setup links look like https://<app>/#setup=<base64url JSON>. They carry no
-// secrets: only IDs and URLs that every teammate's app needs.
+// secrets: only the URLs and the publishable key every teammate's app needs.
+// Each person still signs in with their own login.
 export function encodeSetup(settings) {
-  const data = { v: 1 };
+  const data = { v: SETUP_VERSION };
   for (const k of SETUP_KEYS) if (settings[k]) data[k] = settings[k];
   const bytes = new TextEncoder().encode(JSON.stringify(data));
   let bin = '';
@@ -421,7 +423,7 @@ export function decodeSetup(text) {
     const b64 = m[1].replace(/-/g, '+').replace(/_/g, '/');
     const bin = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
     const data = JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0))));
-    if (data?.v !== 1) return null;
+    if (data?.v !== SETUP_VERSION) return null;
     const out = {};
     for (const k of SETUP_KEYS) if (typeof data[k] === 'string') out[k] = data[k].trim();
     return Object.keys(out).length ? out : null;

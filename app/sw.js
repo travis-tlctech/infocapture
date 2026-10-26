@@ -1,13 +1,12 @@
 // Offline support: the app shell is cached so InfoCapture opens with no
-// signal. The deploy workflow replaces __BUILD__ with the commit id, which
-// makes phones pick up each new release.
+// signal. The deploy workflow stamps VERSION with the commit id, which makes
+// phones pick up each new release.
 const VERSION = '__BUILD__';
 const CACHE = `infocapture-${VERSION}`;
 
 const SHELL = [
   './',
   'index.html',
-  'redirect.html',
   'styles.css',
   'app.js',
   'config.js',
@@ -15,18 +14,17 @@ const SHELL = [
   'js/auth.js',
   'js/cardreader.js',
   'js/db.js',
-  'js/excel.js',
   'js/exporters.js',
   'js/fields.js',
   'js/image.js',
   'js/parsers.js',
   'js/scanner.js',
   'js/settings.js',
+  'js/store.js',
   'js/sync.js',
+  'js/xlsx.js',
   'vendor/jsQR.min.js',
-  'vendor/msal-browser.min.js',
-  'vendor/msal-redirect-bridge.min.js',
-  'template/InfoCapture-Leads.xlsx',
+  'vendor/supabase.min.js',
   'icons/icon.svg',
   'icons/icon-192.png',
   'icons/apple-touch-icon.png',
@@ -51,8 +49,8 @@ self.addEventListener('message', (event) => {
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
-  // Only our own static files. Microsoft sign-in, Graph and the card reader
-  // always go to the network.
+  // Only our own static files. Supabase and the card reader always go to the
+  // network.
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
 
   // config.js: prefer the network so admins can change it without a release.
@@ -60,8 +58,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(networkFirst(req));
     return;
   }
-  // ignoreSearch: the sign-in redirect carries a one-time code in the URL;
-  // it must never be written to the cache, only matched to the static page.
+  // ignoreSearch: a link with a query string still opens the cached page.
   event.respondWith(
     caches.match(req, { ignoreSearch: true }).then((hit) => hit || fetch(req)).catch(() => caches.match('index.html')),
   );
