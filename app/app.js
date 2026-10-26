@@ -18,6 +18,7 @@ const ui = { view: null, scanner: null, form: null, search: '', objectUrls: [], 
 // ---------- helpers ----------
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const LOGO = '<svg class="logo" viewBox="0 0 512 512" aria-hidden="true"><defs><filter id="logo-glow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="9" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><rect width="512" height="512" rx="112" fill="#0F2557"/><g filter="url(#logo-glow)"><path d="M102 182V102h80M330 102h80v80M102 330v80h80M330 410h80v-80" fill="none" stroke="#6FF2FF" stroke-width="28"/><rect x="160" y="192" width="192" height="128" rx="20" fill="#6FF2FF"/></g><circle cx="210" cy="243" r="22" fill="#0F2557"/><rect x="172" y="272" width="76" height="34" rx="17" fill="#0F2557"/><rect x="256" y="231" width="72" height="11" rx="5.5" fill="#0F2557"/><rect x="256" y="262" width="54" height="11" rx="5.5" fill="#0F2557"/></svg>';
 const icon = (name, cls = '') => `<svg class="icon ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`);
 const now = () => new Date().toISOString();
@@ -188,7 +189,7 @@ async function renderHome() {
   const drafts = records.filter((r) => r.isDraft).length;
   app.innerHTML = `
     <header class="topbar">
-      <div class="brand"><span>InfoCapture</span></div>
+      <div class="brand">${LOGO}<span>InfoCapture</span></div>
       <div class="topbar-actions">
         <span id="sync-pill">${syncPill()}</span>
         <a class="icon-btn" href="#/settings" aria-label="Settings">${icon('sliders')}</a>

@@ -10,7 +10,7 @@ A lightweight, phone-first web app for capturing leads at conferences. Scan a ba
 - **One team list.** Each person signs in with their own login (no Microsoft or Google account needed), and everyone's captures land in one list in Supabase. Edits update the same contact.
 - **Team spreadsheet**: Settings > Download spreadsheet gives an Excel file of everyone's contacts, with links to the card photos.
 - Duplicate warning, CSV and vCard export, "Add to phone contacts", light and dark mode, installable to the home screen.
-- Styled to the TLC_TRNG brand: navy, azure and cyan, Montserrat and Open Sans, and the TLC_TRNG badge as the app icon (see `brand/README.md`).
+- Styled to the TLC_TRNG brand: navy, azure and cyan, Montserrat and Open Sans; the InfoCapture icon glows cyan on navy (see `brand/README.md`).
 
 ## How it fits together
 
@@ -31,7 +31,7 @@ The app talks to Supabase directly with the person's own sign-in. Database rules
 | --- | --- |
 | `app/` | The web app. Plain HTML, CSS and JavaScript modules, no build step. Deploy this folder. |
 | `app/config.js` | The one file to fill in: the Supabase project URL and publishable key, and the card reader URL. |
-| `brand/` | TLC_TRNG logo masters the icons are built from (`npm run assets`). |
+| `brand/` | TLC_TRNG wordmark masters for the Settings sign-off (`npm run assets`). |
 | `supabase/` | `setup.sql` (tables, rules and photo bucket), `add-team-member.sql`, and their tests. |
 | `backend/card-reader/` | The AWS Lambda (Node.js), its CloudFormation template, and the deploy scripts. |
 | `tests/` | Unit tests and browser tests (fake camera, simulated Supabase). |
