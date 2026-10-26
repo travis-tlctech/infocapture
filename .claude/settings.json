@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Asana__get_me", "mcp__Asana__get_user", "mcp__Asana__get_users",
+      "mcp__Asana__get_project", "mcp__Asana__get_projects",
+      "mcp__Asana__get_task", "mcp__Asana__get_tasks", "mcp__Asana__get_task_stories",
+      "mcp__Asana__search_tasks", "mcp__Asana__search_objects",
+      "mcp__Asana__create_tasks", "mcp__Asana__update_tasks",
+      "mcp__Asana__add_comment", "mcp__Asana__update_project"
+    ]
+  }
+}
