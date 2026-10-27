@@ -25,7 +25,7 @@ const shot = (page, name) => page.screenshot({ path: join(FIXTURES, 'screens', `
 
 // Wires a page to a fake Supabase and a fake card reader. signedIn seeds a
 // session the way supabase-js stores one after a real sign-in.
-async function setup(page, { settings = SETTINGS, signedIn = true, member = true, readerFields = {}, readerReply = null, readerDelay = 300 } = {}) {
+async function setup(page, { settings = SETTINGS, config = {}, signedIn = true, member = true, readerFields = {}, readerReply = null, readerDelay = 300 } = {}) {
   const fake = new FakeSupabase();
   const user = fake.addUser({ email: EMAIL, password: PASSWORD, member });
   const session = signedIn ? fake.createSession(user) : null;
@@ -41,7 +41,8 @@ async function setup(page, { settings = SETTINGS, signedIn = true, member = true
   }, { settings, session });
 
   // The real config.js points at the live project; tests never touch it.
-  await page.route('**/config.js', (route) => route.fulfill({ contentType: 'text/javascript', body: "export default { supabaseUrl: '', supabaseKey: '', cardReaderUrl: '' };" }));
+  const configJs = `export default ${JSON.stringify({ supabaseUrl: '', supabaseKey: '', cardReaderUrl: '', ...config })};`;
+  await page.route('**/config.js', (route) => route.fulfill({ contentType: 'text/javascript', body: configJs }));
   await page.route('https://*.supabase.co/**', (route) => {
     leaked.push(route.request().url());
     return route.abort();
@@ -449,6 +450,46 @@ test('a phone new to this login gets its contacts, event and name back', async (
   await page.goto('./#/');
   await expect(page.locator('.item')).toHaveCount(2);
   expect(fake.rows()).toHaveLength(3);
+});
+
+test('the event is picked by date, and from a list of the team\'s events', async ({ page }) => {
+  const events = [
+    { name: 'NPPERS 2026', start: '2026-11-02', end: '2026-11-06', place: 'Corpus Christi, TX' },
+    { name: 'IAEM 2026', start: '2026-11-06', end: '2026-11-09', place: 'Long Beach, CA' },
+  ];
+  await page.clock.setFixedTime(new Date(2026, 10, 3, 9, 30));
+  const { fake } = await setup(page, { settings: { ...SETTINGS, event: '' }, config: { events } });
+  await page.goto('./');
+  await expect(page.locator('#toast')).toContainText('Event set to NPPERS 2026');
+  await expect(page.locator('.event-chip')).toContainText('NPPERS 2026');
+
+  await page.locator('.event-chip').click();
+  const sheet = page.locator('#event-picker');
+  await expect(sheet).toBeVisible();
+  await expect(sheet.locator('.pick')).toHaveText([/NPPERS 2026.*On now.*Nov 2.*6, 2026.*Corpus Christi, TX/, /IAEM 2026.*Nov 6.*9, 2026.*Long Beach, CA/, /Another event/, /No event/]);
+  await expect(sheet.locator('.pick.on')).toContainText('NPPERS 2026');
+  await shot(page, '11-event-picker');
+  await sheet.getByRole('button', { name: /IAEM 2026/ }).click();
+  await expect(sheet).toBeHidden();
+  await expect(page.locator('.event-chip')).toContainText('IAEM 2026');
+
+  // Picked by hand: it stays, even though NPPERS is the event on today.
+  await page.reload();
+  await expect(page.locator('.event-chip')).toContainText('IAEM 2026');
+  await page.getByRole('button', { name: /Type it in/ }).click();
+  await page.locator('[name=firstName]').fill('Ana');
+  await page.getByRole('button', { name: /Save contact/ }).click();
+  await expect(syncPill(page)).toContainText('Synced', { timeout: 10000 });
+  expect(fake.rows()[0].event).toBe('IAEM 2026');
+
+  // Another event, typed in.
+  await page.locator('.event-chip').click();
+  page.once('dialog', (d) => d.accept('Board dinner'));
+  await page.getByRole('button', { name: /Another event/ }).click();
+  await expect(page.locator('.event-chip')).toContainText('Board dinner');
+  await page.getByRole('link', { name: 'Settings', exact: true }).click();
+  await expect(page.locator('#settings-form [name=event]')).toHaveValue('Board dinner');
+  await expect(page.locator('#event-list option')).toHaveCount(2);
 });
 
 test('the team spreadsheet has everyone\'s contacts with photo links', async ({ page }) => {

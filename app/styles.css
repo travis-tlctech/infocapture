@@ -320,6 +320,26 @@ h1, h2, h3 { margin: 0; line-height: 1.25; font-family: var(--font-head); font-w
 .qr-raw pre { white-space: pre-wrap; word-break: break-all; background: var(--surface-2); padding: 10px; border-radius: 10px; margin: 6px 0; max-height: 180px; overflow: auto; font-size: 12px; }
 .hint { font-size: 13px; color: var(--muted); margin: 4px 0 12px; }
 
+/* Event picker: a sheet from the bottom of the screen. */
+dialog.sheet {
+  width: 100%; max-width: 560px; max-height: 85vh; margin: auto auto 0; overflow-y: auto;
+  padding: 20px 16px calc(16px + env(safe-area-inset-bottom));
+  border: 0; border-radius: 20px 20px 0 0; background: var(--surface); color: var(--text);
+}
+dialog.sheet::backdrop { background: rgb(8 25 55 / 55%); }
+dialog.sheet h2 { margin: 0; font-family: var(--font-head); font-size: 19px; color: var(--heading); }
+dialog.sheet > .btn { width: 100%; }
+.picks { display: grid; gap: 8px; margin: 4px 0 14px; }
+.pick {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: var(--tap);
+  padding: 11px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
+  color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.pick strong { display: block; font-family: var(--font-head); font-weight: 700; color: var(--heading); }
+.pick small { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); }
+.pick.on { border-color: var(--structure); box-shadow: inset 0 0 0 1px var(--structure); }
+.pick .icon { flex: none; color: var(--structure); }
+
 .field { display: grid; gap: 4px; margin-bottom: 12px; }
 .field > span { font-size: 13px; font-weight: 600; color: var(--heading); }
 .field input, .field textarea {

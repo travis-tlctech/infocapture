@@ -14,6 +14,7 @@ const SHELL = [
   'js/auth.js',
   'js/cardreader.js',
   'js/db.js',
+  'js/events.js',
   'js/exporters.js',
   'js/fields.js',
   'js/image.js',

@@ -112,7 +112,7 @@ Prefer not to commit them? Leave `config.js` blank, enter the values on one phon
 1. Open https://travis-tlctech.github.io/infocapture/ in Safari (iPhone) or Chrome (Android).
 2. iPhone: **Share > Add to Home Screen**. Android: **Install app** from the menu. (Installed, the app opens full screen, works offline, and iOS keeps its storage.)
 3. **Settings > Account**: sign in with your email and password. You stay signed in on that phone until you sign out.
-4. Settings: set **Your name** and the **Current event**, then **Test connection**.
+4. Settings: set **Your name**, then **Test connection**.
 
 The first sync after signing in on a phone (a new phone, the app newly added to the Home Screen after using it in Safari, or signing in again) brings back the contacts that login captured, from the team list, and fills in an empty name and event from the latest one. Card photos of those contacts show from the team list when there is a connection.
 
@@ -120,7 +120,7 @@ The first sync after signing in on a phone (a new phone, the app newly added to 
 
 A one-page version for whoever staffs the booth, with a QR code that opens the app: [docs/booth-guide/InfoCapture-booth-guide.pdf](docs/booth-guide/InfoCapture-booth-guide.pdf). Edit `docs/booth-guide/booth-guide.html` and run `npm run guide` to rebuild it.
 
-- Set the event once (tap the event bar on the home screen). It is stamped on every contact.
+- The event is stamped on every contact. The team's events are listed in `app/config.js` (`events`: name, first and last day, place); on an event's dates the app picks it by itself, unless that phone has an event typed in by hand, or two listed events overlap that day. Tap the event bar on the home screen to pick another event or type one in.
 - **Snap card**: take the photo, start typing notes straight away. Fields fill in a few seconds later; highlighted fields came from the card, so check them.
 - **Scan QR**: hold the badge's QR code in the frame. Name, company, title, email and phone fill in. Add notes, tap tags, **Save**. If the camera picture doesn't appear, tap **Tap to start the camera**.
 - No signal? Keep going. The badge at the top shows how many are waiting, and they sync on their own.

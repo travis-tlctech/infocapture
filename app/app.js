@@ -10,6 +10,7 @@ import { prepareImage } from './js/image.js';
 import { readCardPhoto, readQrText, pingCardReader } from './js/cardreader.js';
 import { toCsv, toVCard, teamWorkbook, shareOrDownload } from './js/exporters.js';
 import { XLSX_TYPE } from './js/xlsx.js';
+import { teamEvents, localDay, runningOn, pickerEvents, autoEvent, dateRange } from './js/events.js';
 
 const app = document.getElementById('app');
 const syncer = new Syncer();
@@ -135,6 +136,7 @@ async function route() {
 }
 
 async function leaveView() {
+  document.getElementById('event-picker')?.close();
   if (ui.scanner) {
     ui.scanner.stop();
     ui.scanner = null;
@@ -263,6 +265,67 @@ function refreshHomeChrome() {
   if (pill) pill.innerHTML = syncPill();
   const b = app.querySelector('#banners');
   if (b) b.innerHTML = banners();
+}
+
+// ---------- events ----------
+
+function setEvent(name, { byHand = true } = {}) {
+  saveSettings({ event: name });
+  // Picked by hand: the app does not switch it by itself again today.
+  if (byHand) setState('eventPickedOn', localDay());
+  document.getElementById('event-picker')?.close();
+  if (ui.view === 'home') renderHome();
+  const input = ui.view === 'settings' && app.querySelector('#settings-form [name=event]');
+  if (input) input.value = name;
+}
+
+function openEventPicker() {
+  const s = getSettings();
+  // iPhones before iOS 15.4 have no <dialog>: type the event in instead.
+  if (typeof HTMLDialogElement !== 'function') return actions['pick-event-other']();
+  const day = localDay();
+  const all = teamEvents();
+  const offered = pickerEvents(all, day);
+  const events = all.filter((e) => offered.includes(e) || e.name === s.event);
+  const now = new Set(runningOn(events, day).map((e) => e.name));
+  const pick = (value, title, sub) => {
+    const on = value === s.event;
+    return `<button type="button" class="pick${on ? ' on' : ''}" data-action="pick-event" data-event="${esc(value)}" aria-pressed="${on}"><span><strong>${esc(title)}</strong>${sub ? `<small>${esc(sub)}</small>` : ''}</span>${on ? icon('check', 'small') : ''}</button>`;
+  };
+  let dialog = document.getElementById('event-picker');
+  if (!dialog) {
+    dialog = document.createElement('dialog');
+    dialog.id = 'event-picker';
+    dialog.className = 'sheet';
+    // A tap on the dimmed backdrop closes it.
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) dialog.close();
+    });
+    document.body.append(dialog);
+  }
+  dialog.innerHTML = `
+    <h2>Which event are you at?</h2>
+    <p class="hint">It is saved with each contact.</p>
+    <div class="picks">
+      ${events.map((e) => pick(e.name, e.name, [now.has(e.name) ? 'On now' : '', dateRange(e), e.place].filter(Boolean).join(' · '))).join('')}
+      ${s.event && !events.some((e) => e.name === s.event) ? pick(s.event, s.event, 'Typed in on this phone') : ''}
+      <button type="button" class="pick" data-action="pick-event-other"><span><strong>Another event...</strong><small>Type its name</small></span></button>
+      ${s.event ? pick('', 'No event', '') : ''}
+    </div>
+    <button type="button" class="btn ghost" data-action="close-picker">Cancel</button>`;
+  dialog.showModal();
+}
+
+// On an event's dates the phone switches to it by itself (see events.js),
+// unless the event was picked by hand today.
+function applyAutoEvent() {
+  const day = localDay();
+  if (getState('eventPickedOn') === day) return false;
+  const next = autoEvent(getSettings().event, teamEvents(), day);
+  if (next === null) return false;
+  setEvent(next, { byHand: false });
+  toast(`Event set to ${next}. Tap the event bar to change it.`, { timeout: 6000 });
+  return true;
 }
 
 // ---------- scanning ----------
@@ -687,7 +750,7 @@ async function renderSettings() {
       <form id="settings-form" class="card" autocomplete="off">
         <h2>Capturing</h2>
         <label class="field"><span>Your name (shown in "Captured By")</span><input name="capturedBy" value="${esc(s.capturedBy)}" placeholder="${esc(account?.name || 'Your name')}"></label>
-        <label class="field"><span>Current event</span><input name="event" value="${esc(s.event)}" placeholder="e.g. HR Tech Expo 2026"></label>
+        <label class="field"><span>Current event</span><input name="event" value="${esc(s.event)}" list="event-list" placeholder="Pick or type the event"><datalist id="event-list">${teamEvents().map((e) => `<option value="${esc(e.name)}">${esc(dateRange(e))}</option>`).join('')}</datalist></label>
         <label class="field"><span>Quick tags (comma separated)</span><input name="tags" value="${esc((s.tags || []).join(', '))}"></label>
 
         <details class="more"${isConfigured(s) ? '' : ' open'}>
@@ -758,6 +821,7 @@ async function renderSettings() {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(e.target));
     const before = getSettings();
+    if (data.event.trim() !== before.event) setState('eventPickedOn', localDay());
     const next = saveSettings({
       capturedBy: data.capturedBy.trim(),
       event: data.event.trim(),
@@ -946,13 +1010,14 @@ const actions = {
   },
   'add-extra': (btn) => addExtraContact(Number(btn.dataset.index)),
   'zoom-photo': (btn) => btn.classList.toggle('zoomed'),
-  async 'edit-event'() {
-    const s = getSettings();
-    const value = prompt('Which event are you at? It is saved with each contact.', s.event);
-    if (value === null) return;
-    saveSettings({ event: value.trim() });
-    renderHome();
+  'edit-event': () => openEventPicker(),
+  'pick-event': (btn) => setEvent(btn.dataset.event),
+  'pick-event-other'() {
+    document.getElementById('event-picker')?.close();
+    const value = prompt('Which event are you at? It is saved with each contact.', '');
+    if (value !== null && value.trim()) setEvent(value.trim());
   },
+  'close-picker': () => document.getElementById('event-picker')?.close(),
   sync() {
     const st = syncer.status.state;
     if (st === 'signed-out' || st === 'needs-auth') return actions['sign-in']();
@@ -1090,8 +1155,10 @@ window.addEventListener('hashchange', route);
 window.addEventListener('online', () => syncer.schedule(1000));
 window.addEventListener('offline', () => syncer.run());
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') syncer.schedule(1500);
-  else if (ui.form) saveForm();
+  if (document.visibilityState === 'visible') {
+    applyAutoEvent();
+    syncer.schedule(1500);
+  } else if (ui.form) saveForm();
 });
 window.addEventListener('pagehide', () => {
   if (ui.form) saveForm();
@@ -1146,6 +1213,7 @@ async function start() {
   }
   syncer.status.pending = await syncer.countPending();
   await route();
+  applyAutoEvent();
   syncer.run();
   registerServiceWorker();
 }
