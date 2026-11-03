@@ -28,7 +28,7 @@ Phone-first lead capture: scan a badge QR code or snap a business card, add note
 - Project: https://vdcwyqththjkgbskthcb.supabase.co (Travis's Pro organization, region East US / Ohio). The URL and the publishable key are in `app/config.js`; neither is a secret.
 - Never ask for, read or handle the secret key, the service role key or the database password. Nothing in this repo needs them.
 - Schema and access rules live in `supabase/setup.sql`, written so it is safe to run again. Travis runs it in the dashboard's SQL Editor; say exactly what to paste. `supabase/test/run.sh` checks it and the rules on a local PostgreSQL; run it after any change.
-- Logins: Travis creates each one in the dashboard and adds it to the team with `supabase/add-team-member.sql`. Public sign-ups stay off. Passwords are never posted in chat, Asana or email.
+- Logins: Travis creates each one in the dashboard and adds it to the team with `supabase/add-team-member.sql`; a forgotten password is reset with `supabase/set-password.sql` (Supabase's built-in email cannot reach Rick). Public sign-ups stay off. Passwords are never posted in chat, Asana or email.
 
 ## Anthropic API key (Travis's rules)
 

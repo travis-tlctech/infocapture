@@ -32,7 +32,7 @@ The app talks to Supabase directly with the person's own sign-in. Database rules
 | `app/` | The web app. Plain HTML, CSS and JavaScript modules, no build step. Deploy this folder. |
 | `app/config.js` | The one file to fill in: the Supabase project URL and publishable key, and the card reader URL. |
 | `brand/` | TLC_TRNG wordmark masters for the Settings sign-off (`npm run assets`). |
-| `supabase/` | `setup.sql` (tables, rules and photo bucket), `add-team-member.sql`, and their tests. |
+| `supabase/` | `setup.sql` (tables, rules and photo bucket), `add-team-member.sql`, `set-password.sql`, and their tests. |
 | `backend/card-reader/` | The AWS Lambda (Node.js), its CloudFormation template, and the deploy scripts. |
 | `tests/` | Unit tests and browser tests (fake camera, simulated Supabase). |
 
@@ -56,6 +56,7 @@ In the [Supabase dashboard](https://supabase.com/dashboard), in your project:
 2. **Authentication > Sign In / Providers**: turn off **Allow new users to sign up**. Logins are created only by you.
 3. **Authentication > Users > Add user > Create new user** for each person, with a password and **Auto Confirm User** ticked. Give each person their password privately (not in chat, Asana or email).
 4. **SQL Editor**: run [`supabase/add-team-member.sql`](supabase/add-team-member.sql) once per person, with their email in place of `person@example.com`. A login that is not on the team can sign in but sees and saves nothing; the app says so.
+5. Someone forgot their password? Supabase's built-in email only reaches members of your Supabase organization, so set a new one in the **SQL Editor** with [`supabase/set-password.sql`](supabase/set-password.sql) (their email and the new password), give it to them in person or by phone, then delete that query from the SQL Editor's list.
 
 Contacts can also be viewed in **Table Editor > leads**, and card photos in **Storage > card-photos**.
 

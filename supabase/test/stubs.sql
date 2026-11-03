@@ -4,8 +4,11 @@
 create role anon nologin;
 create role authenticated nologin;
 
+create schema extensions;
+create extension pgcrypto with schema extensions;
+
 create schema auth;
-create table auth.users (id uuid primary key, email text not null);
+create table auth.users (id uuid primary key, email text not null, encrypted_password text, updated_at timestamptz);
 create function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
 $$;

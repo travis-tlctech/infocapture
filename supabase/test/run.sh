@@ -28,4 +28,5 @@ psql=(psql -X -q -v ON_ERROR_STOP=1 -h "$tmp" -p "$port" -U postgres -d postgres
 "${psql[@]}" -f "$supa/setup.sql"
 "${psql[@]}" -f "$supa/setup.sql"
 sed "s/person@example.com/member@example.com/" "$supa/add-team-member.sql" | "${psql[@]}" >/dev/null
+sed "s/person@example.com/member@example.com/; s/NEW PASSWORD HERE/it's a new one/" "$supa/set-password.sql" | "${psql[@]}" >/dev/null
 "${psql[@]}" -f "$here/checks.sql"

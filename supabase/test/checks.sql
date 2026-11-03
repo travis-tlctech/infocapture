@@ -74,5 +74,13 @@ do $$ begin
 end $$;
 reset role;
 
+-- set-password.sql (run by run.sh) changed the member's password, and only theirs.
+do $$ begin
+  if (select encrypted_password = extensions.crypt('it''s a new one', encrypted_password) from auth.users where email = 'Member@Example.com') is not true then
+    raise exception 'set-password.sql did not set the password';
+  end if;
+  if (select encrypted_password from auth.users where email = 'outsider@example.com') is not null then raise exception 'set-password.sql changed another login'; end if;
+end $$;
+
 \o
 \echo 'all database checks passed'
