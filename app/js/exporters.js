@@ -70,12 +70,20 @@ function vcard(r) {
   return lines.join('\r\n') + '\r\n';
 }
 
-// Shares the file through the phone's share sheet when possible (mail,
-// AirDrop, Teams), otherwise downloads it.
+// Phones and tablets offer the share sheet (Save to Files, AirDrop, Mail);
+// computers download the file, as people expect there. iPads that ask for
+// desktop sites say "Macintosh", but have a touch screen.
+export function prefersShareSheet(nav = globalThis.navigator) {
+  const ua = nav?.userAgent ?? '';
+  return /android|iphone|ipad|ipod/i.test(ua) || (/macintosh/i.test(ua) && (nav?.maxTouchPoints ?? 0) > 1);
+}
+
+// Shares the file through the share sheet on a phone or tablet, otherwise
+// downloads it.
 export async function shareOrDownload(filename, content, type) {
   const blob = new Blob([content], { type });
   const file = new File([blob], filename, { type });
-  if (navigator.canShare?.({ files: [file] })) {
+  if (prefersShareSheet() && navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: filename });
       return 'shared';

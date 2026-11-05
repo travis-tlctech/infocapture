@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toCsv, toVCard } from '../../app/js/exporters.js';
+import { toCsv, toVCard, prefersShareSheet } from '../../app/js/exporters.js';
 import { parseQr } from '../../app/js/parsers.js';
 import { fillBlanks } from '../../app/js/fields.js';
 
@@ -76,4 +76,14 @@ test('applyReading fills blanks, keeps unsure fields it filled, and holds extra 
   const old = { firstName: '' };
   applyReading(old, { fields: { firstName: 'Legacy' } });
   assert.equal(old.firstName, 'Legacy', 'a plain { fields } reply still works');
+});
+
+test('phones and tablets get the share sheet; computers download', () => {
+  const nav = (userAgent, maxTouchPoints = 0) => ({ userAgent, maxTouchPoints });
+  assert.equal(prefersShareSheet(nav('Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148', 5)), true);
+  assert.equal(prefersShareSheet(nav('Mozilla/5.0 (Linux; Android 15; Pixel 7) AppleWebKit/537.36 Chrome/131 Mobile Safari/537.36', 5)), true);
+  assert.equal(prefersShareSheet(nav('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.1 Safari/605.1.15', 5)), true); // iPad, desktop site
+  assert.equal(prefersShareSheet(nav('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.1 Safari/605.1.15', 0)), false); // Mac
+  assert.equal(prefersShareSheet(nav('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36')), false);
+  assert.equal(prefersShareSheet(undefined), false);
 });

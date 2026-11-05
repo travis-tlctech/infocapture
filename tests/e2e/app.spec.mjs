@@ -624,3 +624,28 @@ test('the lead board on a phone: sign in there, and a clear message before the d
   await page.getByRole('link', { name: 'Back to capture' }).click();
   await expect(page.getByRole('button', { name: /Snap card/ })).toBeVisible();
 });
+
+test('on a Mac the lead board downloads the spreadsheet instead of opening the share sheet', async ({ browser }) => {
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15',
+    viewport: { width: 1280, height: 800 },
+    serviceWorkers: 'block',
+  });
+  const page = await context.newPage();
+  // Safari on a Mac can share files; record it if the board asks.
+  await page.addInitScript(() => {
+    window.shared = 0;
+    navigator.canShare = () => true;
+    navigator.share = async () => { window.shared += 1; };
+  });
+  const { fake } = await setup(page);
+  const A = 'aaaaaaaa-0000-4000-8000-000000000000';
+  fake.leads.set(A, teamRow(A, { first_name: 'Ana', event: 'NPPERS 2026' }));
+  await page.goto('./leads/');
+  await expect(page.locator('[data-metric=total] .num')).toHaveText('1');
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: /Spreadsheet/ }).click();
+  expect((await download).suggestedFilename()).toMatch(/^InfoCapture leads \d{4}-\d{2}-\d{2}\.xlsx$/);
+  expect(await page.evaluate(() => window.shared)).toBe(0);
+  await context.close();
+});
