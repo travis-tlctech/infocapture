@@ -1178,13 +1178,14 @@ setInterval(() => {
 
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator) || (location.protocol === 'http:' && location.hostname !== 'localhost')) return;
+  const offer = (next) => toast('A new version is ready.', { action: 'Update', timeout: 0, onAction: () => next.postMessage('skipWaiting') });
   navigator.serviceWorker.register('sw.js').then((reg) => {
+    // A new version that arrived on an earlier visit is still waiting.
+    if (reg.waiting && navigator.serviceWorker.controller) offer(reg.waiting);
     reg.addEventListener('updatefound', () => {
       const next = reg.installing;
       next?.addEventListener('statechange', () => {
-        if (next.state === 'installed' && navigator.serviceWorker.controller) {
-          toast('A new version is ready.', { action: 'Update', timeout: 0, onAction: () => next.postMessage('skipWaiting') });
-        }
+        if (next.state === 'installed' && navigator.serviceWorker.controller) offer(next);
       });
     });
   }).catch(() => {});

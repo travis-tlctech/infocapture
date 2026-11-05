@@ -11,7 +11,59 @@
   <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
   <link rel="stylesheet" href="../styles.css">
   <link rel="stylesheet" href="leads.css">
-  <script type="module" src="leads.js"></script>
+  <script>
+    // InfoCapture's offline copy (sw.js) also serves the files this page
+    // shares with the app. A device whose copy is older than this page would
+    // hand it older files that no longer fit, so that copy is swapped for the
+    // new one first (one reload); then the board starts.
+    (function () {
+      var BUILD = '__BUILD__'; // stamped by the Pages workflow, as in sw.js
+      var sw = navigator.serviceWorker;
+      var started = false;
+      function start() {
+        if (started) return;
+        started = true;
+        var s = document.createElement('script');
+        s.type = 'module';
+        s.src = 'leads.js';
+        document.head.appendChild(s);
+      }
+      if (!sw || !sw.controller || BUILD.indexOf('__') === 0) return start();
+      var asked = false;
+      function refresh() {
+        if (asked) return;
+        asked = true;
+        try {
+          if (sessionStorage.getItem('infocapture.boardRefresh') === BUILD) return start(); // tried once already
+          sessionStorage.setItem('infocapture.boardRefresh', BUILD);
+        } catch (e) { /* storage blocked: still try once */ }
+        sw.addEventListener('controllerchange', function () { location.reload(); });
+        sw.getRegistration().then(function (reg) {
+          if (!reg) return start();
+          var take = function (w) { w.postMessage('skipWaiting'); };
+          if (reg.waiting) return take(reg.waiting);
+          reg.addEventListener('updatefound', function () {
+            var w = reg.installing;
+            w.addEventListener('statechange', function () { if (w.state === 'installed') take(w); });
+          });
+          reg.update().catch(start);
+          // No newer copy arrives (offline, or blocked): drop the old one and
+          // load from the site; the app sets its offline copy up again.
+          setTimeout(function () {
+            if (navigator.onLine) reg.unregister().then(function () { location.reload(); }, start);
+            else start();
+          }, 10000);
+        }, start);
+      }
+      sw.addEventListener('message', function (e) {
+        if (!e.data || !e.data.version || started || asked) return;
+        if (e.data.version === BUILD) start();
+        else refresh();
+      });
+      sw.controller.postMessage('version');
+      setTimeout(function () { if (!started) refresh(); }, 2000); // a copy that does not answer
+    })();
+  </script>
 </head>
 <body class="board">
   <svg xmlns="http://www.w3.org/2000/svg" style="display:none">

@@ -27,8 +27,8 @@ jobs:
           node-version: 22
       - run: npm ci
       - run: npm test
-      - name: Stamp the build id into the service worker
-        run: sed -i "s/__BUILD__/${GITHUB_SHA::7}/" app/sw.js
+      - name: Stamp the build id into the service worker and the lead board
+        run: sed -i "s/__BUILD__/${GITHUB_SHA::7}/" app/sw.js app/leads/index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
