@@ -130,6 +130,25 @@ export class SupabaseStore {
     return out;
   }
 
+  // One contact from the team list, or null.
+  async get(id) {
+    const { data, error, status } = await this.client.from(TABLE).select('*').eq('id', id).limit(1);
+    if (error) fail(error, status, 'Reading the contact');
+    return data[0] ?? null;
+  }
+
+  // The lead board's changes to a contact's details, only the fields given.
+  // updated_at moves on, so the phone that captured it merges them in.
+  async updateContact(id, patch) {
+    const all = toRow(patch);
+    const row = Object.fromEntries(Object.entries(DB_COLUMNS).filter(([key]) => key in patch).map(([, col]) => [col, all[col]]));
+    row.updated_at = new Date().toISOString();
+    const { data, error, status } = await this.client.from(TABLE).update(row).eq('id', id).select('id');
+    if (error) fail(error, status, 'Saving the contact');
+    if (!data?.length) throw new StoreError('That contact is no longer in the team list.', 404);
+    return row.updated_at;
+  }
+
   // The lead board's follow-up changes, only the fields given.
   async updateFollowUp(id, patch) {
     const { data, error, status } = await this.client.from(TABLE).update(followUpToRow(patch)).eq('id', id).select('id');

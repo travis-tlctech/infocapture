@@ -1,16 +1,17 @@
 // The lead board (Asana S3.2): every lead in the team list with its
 // follow-up, filters and metric tiles. Opened from the capture app at
 // leads/, at the same address, so it shares the app's sign-in. Contact
-// details stay as captured; only the follow-up is edited here.
+// details can be corrected here too; the phone that captured a contact
+// merges those corrections in when it next syncs (see sync.js).
 
-import { getSettings, isConfigured, getState, setState } from '../js/settings.js';
+import { getSettings, isConfigured, getState, setState, DEFAULT_TAGS } from '../js/settings.js';
 import * as auth from '../js/auth.js';
 import { SupabaseStore, teamLeadFromRow, StoreError, NOT_ON_TEAM, NEEDS_DB_UPDATE } from '../js/store.js';
 import { withInitialContact, filterLeads, metrics, POTENTIALS, STATUSES } from '../js/followup.js';
-import { SOURCE_LABELS, displayName } from '../js/fields.js';
+import { CONTACT_FIELDS, SOURCE_LABELS, displayName } from '../js/fields.js';
 import { teamWorkbook, shareOrDownload } from '../js/exporters.js';
 import { XLSX_TYPE } from '../js/xlsx.js';
-import { localDay } from '../js/events.js';
+import { localDay, teamEvents } from '../js/events.js';
 
 const board = document.getElementById('board');
 const drawer = document.getElementById('lead');
@@ -39,6 +40,7 @@ const state = {
   filters: { ...NO_FILTERS, ...getState(FILTERS, {}) },
   sort: { key: 'createdAt', dir: -1 },
   openId: null,
+  editing: false, // the open lead's contact details are being edited
   photos: new Map(), // card photo path -> link
   saving: Promise.resolve(),
   pending: 0,
@@ -94,7 +96,7 @@ async function load({ quiet = false } = {}) {
   }
   document.getElementById('bar-actions').hidden = false;
   render();
-  if (state.openId) renderDrawer();
+  if (state.openId && !state.editing) renderDrawer();
 }
 
 function notice(tone, html, retry = false) {
@@ -229,6 +231,7 @@ function tableHtml(shown) {
 
 function openLead(id) {
   state.openId = id;
+  state.editing = false;
   renderDrawer();
   if (!drawer.open) drawer.showModal();
 }
@@ -239,10 +242,6 @@ function renderDrawer() {
     drawer.close();
     return;
   }
-  const disabled = state.ready ? '' : ' disabled';
-  const people = [...state.people].sort((a, b) => a[1].localeCompare(b[1]));
-  if (l.followUpBy && !state.people.has(l.followUpBy)) people.push([l.followUpBy, personName(l.followUpBy)]);
-  const detail = (label, html) => (html ? `<dt>${label}</dt><dd>${html}</dd>` : '');
   const sub = [l.title, l.company].filter(Boolean).join(' · ');
   drawer.innerHTML = `
     <header class="drawer-head">
@@ -250,18 +249,39 @@ function renderDrawer() {
       <button type="button" class="icon-btn" data-action="close" aria-label="Close">${icon('x')}</button>
     </header>
     <div class="drawer-body">
-      <section class="card" aria-label="Follow-up">
+      <section class="card" id="fu-card" aria-label="Follow-up">${followUpHtml(l)}</section>
+      <div id="lead-photo">${photoHtml(l)}</div>
+      <section class="card" id="contact-card" aria-label="Contact details">${state.editing ? editHtml(l) : contactHtml(l)}</section>
+    </div>`;
+  if (l.cardPhotoPath && !state.photos.has(l.cardPhotoPath)) loadPhoto(l.cardPhotoPath);
+  if (state.editing) drawer.querySelector('#edit-contact input')?.focus();
+}
+
+// Only the follow-up part, so a save there leaves the rest of the details be.
+function renderFollowUp() {
+  const l = state.leads.find((x) => x.id === state.openId);
+  const el = drawer.querySelector('#fu-card');
+  if (l && el) el.innerHTML = followUpHtml(l);
+}
+
+function followUpHtml(l) {
+  const disabled = state.ready ? '' : ' disabled';
+  const people = [...state.people].sort((a, b) => a[1].localeCompare(b[1]));
+  if (l.followUpBy && !state.people.has(l.followUpBy)) people.push([l.followUpBy, personName(l.followUpBy)]);
+  return `
         <h3>Follow-up</h3>
         <div class="field"><span>Potential</span><div class="seg">${POTENTIALS.map((p) => `<button type="button" class="chip${l.potential === p ? ' on' : ''}" data-action="potential" data-value="${p}" aria-pressed="${l.potential === p}"${disabled}>${p}</button>`).join('')}</div></div>
         <fieldset class="statuses"><legend>Status</legend>
           ${STATUSES.map((s) => `<label class="check"><input type="checkbox" data-status="${esc(s)}"${l.followUpStatus.includes(s) ? ' checked' : ''}${disabled}><span>${esc(s)}</span></label>`).join('')}
         </fieldset>
         <label class="field"><span>Follow-up person</span><select data-field="followUpBy"${disabled}><option value="">Not assigned</option>${people.map(([id, n]) => `<option value="${esc(id)}"${id === l.followUpBy ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
-        <p class="save-state" id="save-state" aria-live="polite"></p>
-      </section>
-      <div id="lead-photo">${photoHtml(l)}</div>
-      <section class="card" aria-label="Contact details">
-        <h3>Contact</h3>
+        <p class="save-state" id="save-state" aria-live="polite"></p>`;
+}
+
+function contactHtml(l) {
+  const detail = (label, html) => (html ? `<dt>${label}</dt><dd>${html}</dd>` : '');
+  return `
+        <div class="card-head"><h3>Contact</h3><button type="button" class="btn small ghost" data-action="edit-contact">Edit</button></div>
         <dl class="details">
           ${detail('Email', l.email ? `<a href="mailto:${esc(l.email)}">${esc(l.email)}</a>` : '')}
           ${detail('Phone', l.phone ? `<a href="tel:${esc(l.phone)}">${esc(l.phone)}</a>` : '')}
@@ -278,11 +298,62 @@ function renderDrawer() {
           ${detail('Also captured', l.otherCaptures.map((c) => `<button type="button" class="link-btn" data-action="open" data-id="${esc(c.id)}">${esc([c.who || 'Someone', when(c.at)].join(', '))}</button>`).join('<br>'))}
           ${detail('Source', esc(SOURCE_LABELS[l.source] ?? l.source))}
           ${detail('QR data', l.qrRaw ? `<code>${esc(l.qrRaw)}</code>` : '')}
-        </dl>
-        <p class="hint">Contact details are as captured; they are changed in the app on the phone that captured them.</p>
-      </section>
-    </div>`;
-  if (l.cardPhotoPath && !state.photos.has(l.cardPhotoPath)) loadPhoto(l.cardPhotoPath);
+        </dl>`;
+}
+
+function editHtml(l) {
+  const s = getSettings();
+  const tags = [...new Set([...(s.tags?.length ? s.tags : DEFAULT_TAGS), ...(l.tags ?? [])])];
+  const events = [...new Set([...teamEvents().map((e) => e.name), ...state.leads.map((x) => x.event).filter(Boolean)])].sort();
+  const field = (f) => `<label class="field"><span>${esc(f.label)}</span><input name="${f.key}" type="${f.type || 'text'}"${f.inputmode ? ` inputmode="${f.inputmode}"` : ''} value="${esc(l[f.key])}" autocomplete="off"></label>`;
+  return `
+        <form id="edit-contact">
+          <h3>Edit contact</h3>
+          <div class="grid2">${field(CONTACT_FIELDS[0])}${field(CONTACT_FIELDS[1])}</div>
+          ${CONTACT_FIELDS.slice(2).map(field).join('')}
+          <label class="field"><span>Event</span><input name="event" list="board-events" value="${esc(l.event)}" autocomplete="off"><datalist id="board-events">${events.map((e) => `<option value="${esc(e)}">`).join('')}</datalist></label>
+          <fieldset class="tags"><legend>Tags</legend>
+            ${tags.map((t) => `<button type="button" class="chip${(l.tags ?? []).includes(t) ? ' on' : ''}" data-action="edit-tag" data-tag="${esc(t)}" aria-pressed="${(l.tags ?? []).includes(t)}">${esc(t)}</button>`).join('')}
+          </fieldset>
+          <label class="field"><span>Notes</span><textarea name="notes" rows="4">${esc(l.notes)}</textarea></label>
+          <p class="save-state" id="edit-state" aria-live="polite"></p>
+          <div class="row-buttons"><button type="submit" class="btn primary">Save changes</button><button type="button" class="btn ghost" data-action="cancel-edit">Cancel</button></div>
+          <p class="hint">Saved for the whole team. If the contact is edited later on the phone that captured it, these changes are kept.</p>
+        </form>`;
+}
+
+// The contact's details as typed on the board, only the fields changed.
+async function saveContact(form) {
+  const l = state.leads.find((x) => x.id === state.openId);
+  if (!l) return;
+  const data = new FormData(form);
+  const next = Object.fromEntries(CONTACT_FIELDS.map((f) => [f.key, String(data.get(f.key) ?? '').trim()]));
+  next.event = String(data.get('event') ?? '').trim();
+  next.notes = form.elements.notes.value; // as typed, so untouched notes are not "changed"
+  next.tags = [...form.querySelectorAll('.chip.on[data-tag]')].map((b) => b.dataset.tag);
+  const patch = Object.fromEntries(Object.entries(next).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(l[k] ?? (k === 'tags' ? [] : ''))));
+  if (!Object.keys(patch).length) {
+    state.editing = false;
+    return renderDrawer();
+  }
+  const button = form.querySelector('[type=submit]');
+  const out = form.querySelector('#edit-state');
+  button.disabled = true;
+  out.classList.remove('bad');
+  out.textContent = 'Saving...';
+  try {
+    const updatedAt = await state.store.updateContact(l.id, patch);
+    Object.assign(l, patch, { updatedAt });
+    state.leads = withInitialContact(state.leads, state.people);
+    state.editing = false;
+    renderResults();
+    renderDrawer();
+    toast('Contact saved for the team');
+  } catch (err) {
+    button.disabled = false;
+    out.classList.add('bad');
+    out.textContent = err instanceof auth.NetworkError ? 'No connection: not saved. Try again when you have signal.' : `Not saved: ${err.message}`;
+  }
 }
 
 function photoHtml(l) {
@@ -309,7 +380,7 @@ function saveFollowUp(patch) {
   const before = Object.fromEntries(Object.keys(patch).map((k) => [k, l[k]]));
   Object.assign(l, patch);
   renderResults();
-  renderDrawer();
+  renderFollowUp();
   setSaveState('Saving...');
   state.pending += 1;
   state.saving = state.saving.then(async () => {
@@ -319,7 +390,7 @@ function saveFollowUp(patch) {
     } catch (err) {
       Object.assign(l, before);
       renderResults();
-      if (state.openId === l.id) renderDrawer();
+      if (state.openId === l.id) renderFollowUp();
       const message = err instanceof auth.NetworkError ? 'No connection: not saved. Try again when you have signal.' : `Not saved: ${err.message}`;
       setSaveState(message, true);
       toast(message, 6000);
@@ -371,6 +442,19 @@ const actions = {
     setState(FILTERS, null);
     render();
   },
+  'edit-contact'() {
+    state.editing = true;
+    renderDrawer();
+  },
+  'cancel-edit'() {
+    state.editing = false;
+    renderDrawer();
+  },
+  'edit-tag'(el) {
+    const on = !el.classList.contains('on');
+    el.classList.toggle('on', on);
+    el.setAttribute('aria-pressed', on);
+  },
   potential(el) {
     const l = state.leads.find((x) => x.id === state.openId);
     saveFollowUp({ potential: l?.potential === el.dataset.value ? '' : el.dataset.value });
@@ -411,8 +495,14 @@ drawer.addEventListener('change', (e) => {
 drawer.addEventListener('click', (e) => {
   if (e.target === drawer) drawer.close();
 });
+drawer.addEventListener('submit', (e) => {
+  if (e.target.id !== 'edit-contact') return;
+  e.preventDefault();
+  saveContact(e.target).catch((err) => toast(err.message || 'Something went wrong'));
+});
 drawer.addEventListener('close', () => {
   state.openId = null;
+  state.editing = false;
 });
 
 // Back on the board after a while: pick up the team's changes.

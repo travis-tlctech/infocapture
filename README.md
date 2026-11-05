@@ -147,10 +147,11 @@ For following up after an event: the app's address plus `/leads` (the chart butt
 - **Tiles**: leads captured (per event), lead to conversation (**Email Conversation Started**), lead to call booked (**Call Booked**), moved to BD pipeline (**Moved to BD Pipeline**) and dead leads (**Not Interested/No Response**), each as a count and a share of the leads shown. Each counts its own status only, so tick every status that applies.
 - **Table**: Event, Name, Organization, Email, Tags, Initial Contact, Potential, Status and Follow-up, with filters for event, follow-up person, potential and status, and a search. Click a heading to sort.
 - **Initial Contact** is the team member who captured the person first. Captures of the same person (the same email or badge code) all show that first person, and the details list the other captures.
-- **Click a lead** for its details and card photo, and to set **Potential** (High, Medium, Low), **Status** (several at once) and **Follow-up person** (someone on the team). Changes save straight away for the whole team. Contact details stay as captured.
+- **Click a lead** for its details and card photo, and to set **Potential** (High, Medium, Low), **Status** (several at once) and **Follow-up person** (someone on the team). Changes save straight away for the whole team.
+- **Edit** on a lead corrects its details (name, company, title, email, phones, website, LinkedIn, address, event, tags, notes). The phone that captured the contact still has its own copy; when that contact is next saved on the phone, the phone takes the board's corrections and adds only what it changed itself since it last synced (if both changed the same field, the phone's latest wins).
 - **Spreadsheet** downloads the leads shown, with their follow-up.
 
-The follow-up fields are columns in the `leads` table (`potential`, `follow_up_status`, `follow_up_by`); the capture app never sends them, so a phone saving a contact again leaves them alone. Names in the Follow-up list come from `team_members.name` (set with `add-team-member.sql`).
+The follow-up fields are columns in the `leads` table (`potential`, `follow_up_status`, `follow_up_by`); the capture app never sends them, so a phone saving a contact again leaves them alone. Contact edits move `updated_at` on, which is how a phone notices them (`syncRecord` in `app/js/sync.js`). Names in the Follow-up list come from `team_members.name` (set with `add-team-member.sql`).
 
 ## Costs
 

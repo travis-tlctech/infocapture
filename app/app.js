@@ -1151,6 +1151,27 @@ syncer.addEventListener('restored', async (e) => {
   if (added) toast(`Brought back ${added} of your contact${added === 1 ? '' : 's'} from the team list`);
 });
 
+// The phone took changes made on the lead board: show them in an open
+// contact, so its next save keeps them. A field being typed in is left as is.
+syncer.addEventListener('merged', (e) => {
+  const { id, keys, rec } = e.detail;
+  const f = ui.form;
+  if (f?.rec.id !== id) return;
+  for (const key of keys) {
+    f.rec[key] = rec[key];
+    if (key === 'tags') {
+      for (const chip of app.querySelectorAll('#form .chip[data-tag]')) {
+        const on = rec.tags.includes(chip.dataset.tag);
+        chip.classList.toggle('on', on);
+        chip.setAttribute('aria-pressed', on);
+      }
+    } else {
+      const input = app.querySelector(`#form [name="${key}"]`);
+      if (input && input !== document.activeElement) input.value = rec[key] ?? '';
+    }
+  }
+});
+
 syncer.addEventListener('status', async () => {
   if (ui.view === 'home') {
     refreshHomeChrome();
@@ -1220,6 +1241,7 @@ async function start() {
   for (const r of await db.listRecords()) {
     if (r.parseStatus === 'reading') await db.updateRecord(r.id, (x) => { x.parseStatus = x.source === 'card' ? 'pending' : 'none'; });
   }
+  await syncer.rememberSynced();
   syncer.status.pending = await syncer.countPending();
   await route();
   applyAutoEvent();

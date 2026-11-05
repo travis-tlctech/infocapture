@@ -649,3 +649,67 @@ test('on a Mac the lead board downloads the spreadsheet instead of opening the s
   expect(await page.evaluate(() => window.shared)).toBe(0);
   await context.close();
 });
+
+test('the lead board edits a contact\'s details for the team', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const { fake, user } = await setup(page);
+  user.teamName = 'Travis Cryan';
+  const [A, B] = ['a', 'b'].map((x) => `${x.repeat(8)}-0000-4000-8000-000000000000`);
+  fake.leads.set(A, teamRow(A, { first_name: 'Ana', last_name: 'Diaz', company: 'Contoso', email: 'ana@contso.example', event: 'NPPERS 2026', created_by: user.id, captured_by: 'Travis', potential: 'High', notes: 'Met at booth', tags: ['Hot lead'] }));
+  // Rick met her the day before; her email was misread on Travis's card.
+  fake.leads.set(B, teamRow(B, { first_name: 'Ana', last_name: 'Diaz', email: 'ana@contoso.example', event: 'NPPERS 2026', created_by: 'gone', captured_by: 'Rick', captured_at: '2026-11-02T10:00:00.000Z' }));
+  await page.goto('./leads/');
+  const rowA = page.locator(`tbody tr[data-id="${A}"]`);
+  await expect(rowA.locator('[data-col=initialContact]')).toHaveText('Travis Cryan');
+
+  await rowA.getByRole('button', { name: 'Ana Diaz' }).click();
+  const drawer = page.locator('#lead');
+  // Cancel leaves everything as it was.
+  await drawer.getByRole('button', { name: 'Edit' }).click();
+  await drawer.locator('[name=firstName]').fill('Anna');
+  await drawer.getByRole('button', { name: 'Cancel' }).click();
+  expect(fake.leads.get(A).first_name).toBe('Ana');
+
+  await drawer.getByRole('button', { name: 'Edit' }).click();
+  await drawer.locator('[name=email]').fill('ana@contoso.example');
+  await drawer.locator('[name=company]').fill('Contoso Health');
+  await drawer.getByRole('button', { name: 'Partner' }).click();
+  await drawer.locator('[name=notes]').fill('Met at booth. Call Tuesday.');
+  await shot(page, '15-lead-edit');
+  const before = fake.leads.get(A).updated_at;
+  await drawer.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.locator('#toast')).toContainText('Contact saved for the team');
+  const row = fake.leads.get(A);
+  expect([row.email, row.company, row.tags, row.notes]).toEqual(['ana@contoso.example', 'Contoso Health', ['Hot lead', 'Partner'], 'Met at booth. Call Tuesday.']);
+  expect([row.first_name, row.potential, row.captured_by]).toEqual(['Ana', 'High', 'Travis']);
+  expect(Date.parse(row.updated_at)).toBeGreaterThan(Date.parse(before));
+  await expect(drawer.locator('.details')).toContainText('ana@contoso.example');
+  await expect(drawer.locator('.drawer-head')).toContainText('Contoso Health');
+  // Now the same email as Rick's capture: he becomes the Initial Contact.
+  await drawer.getByRole('button', { name: 'Close' }).click();
+  await expect(rowA.locator('[data-col=initialContact]')).toContainText('Rick');
+});
+
+test('the phone keeps a lead board correction when it saves that contact again', async ({ page }) => {
+  const { fake } = await setup(page);
+  await page.goto('./');
+  await page.getByRole('button', { name: /Type it in/ }).click();
+  await page.locator('[name=firstName]').fill('Ana');
+  await page.locator('[name=email]').fill('ana@contso.example');
+  await page.getByRole('button', { name: /Save contact/ }).click();
+  await expect(syncPill(page)).toContainText('Synced', { timeout: 10000 });
+  // On the lead board, Travis fixes the email and adds the company.
+  Object.assign(fake.rows()[0], { email: 'ana@contoso.example', company: 'Contoso Health', updated_at: new Date(Date.now() + 60000).toISOString() });
+
+  // Later, on the phone, a note on the same contact.
+  await page.locator('.item', { hasText: 'Ana' }).click();
+  await page.locator('[name=notes]').fill('Call Tuesday');
+  await page.getByRole('button', { name: 'Done' }).click();
+  await expect.poll(() => fake.rows()[0].notes, { timeout: 10000 }).toBe('Call Tuesday');
+  expect(fake.rows()[0].email).toBe('ana@contoso.example');
+  expect(fake.rows()[0].company).toBe('Contoso Health');
+  // The phone shows the correction too.
+  await expect(page.locator('.item', { hasText: 'Ana' })).toContainText('Contoso Health');
+  await page.locator('.item', { hasText: 'Ana' }).click();
+  await expect(page.locator('[name=email]')).toHaveValue('ana@contoso.example');
+});

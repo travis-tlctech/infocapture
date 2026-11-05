@@ -7,7 +7,7 @@ import { getSettings, saveSettings, isConfigured, getState, setState } from './s
 import { getAccount, getClient, getAccessToken, AuthRequiredError, NetworkError } from './auth.js';
 import { SupabaseStore, StoreError, NOT_ON_TEAM, fromRow } from './store.js';
 import { readCardPhoto } from './cardreader.js';
-import { applyReading } from './fields.js';
+import { applyReading, editableSnapshot, mergeTeamEdits } from './fields.js';
 import { parseQr } from './parsers.js';
 
 // Thrown when a record is discarded on this device mid-sync.
@@ -143,7 +143,8 @@ export class Syncer extends EventTarget {
     let added = 0;
     for (const row of rows) {
       if (await db.getRecord(row.id)) continue;
-      const rec = { ...fromRow(row), hasImage: false, parseStatus: 'none', isDraft: false, syncStatus: 'synced', syncedAt: row.synced_at || row.updated_at };
+      const rec = { ...fromRow(row), hasImage: false, parseStatus: 'none', isDraft: false, syncStatus: 'synced', syncedAt: row.synced_at || row.updated_at, baseUpdatedAt: row.updated_at };
+      rec.syncedSnapshot = editableSnapshot(rec);
       if (rec.qrRaw) {
         const qr = parseQr(rec.qrRaw);
         Object.assign(rec, { qrKind: qr.kind, qrUrl: qr.url });
@@ -162,6 +163,19 @@ export class Syncer extends EventTarget {
     if (added || Object.keys(patch).length) {
       this.dispatchEvent(new CustomEvent('restored', { detail: { added, ...patch } }));
       this.setStatus('idle', await this.countPending(), '');
+    }
+  }
+
+  // Contacts synced before the lead board could edit them: remember what was
+  // sent, so a later edit on this phone merges with the board's (syncRecord).
+  // A synced contact is exactly what was sent.
+  async rememberSynced() {
+    for (const r of await db.listRecords()) {
+      if (r.syncStatus !== 'synced' || !r.syncedAt || r.syncedSnapshot) continue;
+      await db.updateRecord(r.id, (x) => {
+        x.syncedSnapshot = editableSnapshot(x);
+        x.baseUpdatedAt = x.updatedAt;
+      });
     }
   }
 
@@ -203,6 +217,20 @@ export class Syncer extends EventTarget {
       }
     }
 
+    // Changed on the lead board since this phone last sent it? Keep those
+    // changes, and this phone's own since then. An open contact screen is
+    // told (event "merged"), so it does not save the old values again.
+    if (working.syncedAt && working.syncedSnapshot) {
+      const team = await store.get(rec.id);
+      if (team && Date.parse(team.updated_at) !== Date.parse(working.baseUpdatedAt)) {
+        let taken = [];
+        working = await update(rec.id, (r) => {
+          taken = mergeTeamEdits(r, fromRow(team), r.syncedSnapshot);
+        });
+        if (taken.length) this.dispatchEvent(new CustomEvent('merged', { detail: { id: rec.id, keys: taken, rec: working } }));
+      }
+    }
+
     if (!working.syncedAt && !working.syncAttempted) {
       working = await update(rec.id, (r) => {
         r.syncAttempted = true;
@@ -213,6 +241,8 @@ export class Syncer extends EventTarget {
     await update(rec.id, (r) => {
       r.syncedAt = new Date().toISOString();
       r.syncError = '';
+      r.syncedSnapshot = editableSnapshot(working);
+      r.baseUpdatedAt = sentVersion;
       // Edits made while this row was in flight keep the record pending.
       r.syncStatus = r.updatedAt === sentVersion && !r.deleted ? 'synced' : 'pending';
     });

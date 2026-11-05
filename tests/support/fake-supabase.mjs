@@ -130,7 +130,8 @@ export class FakeSupabase {
       }
       if (method === 'GET' || method === 'HEAD') {
         const by = u.searchParams.get('created_by')?.replace(/^eq\./, '');
-        const all = caller.member ? this.rows().filter((r) => !by || r.created_by === by) : [];
+        const one = u.searchParams.get('id')?.replace(/^eq\./, '');
+        const all = caller.member ? this.rows().filter((r) => (!by || r.created_by === by) && (!one || r.id === one)) : [];
         if (method === 'HEAD') return empty(200, { 'content-range': `*/${all.length}` });
         const offset = Number(u.searchParams.get('offset') ?? 0);
         const limit = Number(u.searchParams.get('limit') ?? all.length);

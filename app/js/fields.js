@@ -15,6 +15,28 @@ export const CONTACT_FIELDS = [
 
 export const CONTACT_KEYS = CONTACT_FIELDS.map((f) => f.key);
 
+// What the lead board can change on a contact, besides the follow-up.
+export const EDITABLE_KEYS = [...CONTACT_KEYS, 'notes', 'tags', 'event'];
+
+const same = (a, b) => JSON.stringify(a ?? '') === JSON.stringify(b ?? '');
+
+// The editable fields as this phone last sent them (see mergeTeamEdits).
+export const editableSnapshot = (rec) => Object.fromEntries(EDITABLE_KEYS.map((k) => [k, rec[k] ?? (k === 'tags' ? [] : '')]));
+
+// A contact changed on the lead board since this phone last sent it: the
+// fields this phone changed since then keep its values, the rest take the
+// team list's. Changes `local`; returns the keys taken from the team list.
+export function mergeTeamEdits(local, team, snapshot) {
+  const taken = [];
+  for (const k of EDITABLE_KEYS) {
+    if (same(local[k], snapshot[k]) && !same(local[k], team[k])) {
+      local[k] = team[k];
+      taken.push(k);
+    }
+  }
+  return taken;
+}
+
 // Columns of the team spreadsheet and the CSV export, most useful first.
 // width is the Excel column width in characters.
 export const COLUMNS = [

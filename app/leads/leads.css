@@ -122,6 +122,9 @@ dialog.drawer::backdrop { background: rgb(8 25 55 / 55%); }
 .check input { width: 20px; height: 20px; accent-color: var(--structure); flex: none; }
 .save-state { min-height: 20px; margin: 0; font-size: 13px; color: var(--muted); }
 .save-state.bad { color: var(--danger); }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.card-head h3 { margin: 0; }
+#edit-contact .field input, #edit-contact .field textarea { font-size: 16px; }
 .details { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; font-size: 14px; }
 .details dt { color: var(--muted); font-weight: 600; }
 .details dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }

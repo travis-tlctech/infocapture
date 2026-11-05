@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { createClient } from '@supabase/supabase-js';
 import { followUpFromRow, followUpToRow, withInitialContact, filterLeads, metrics, STATUSES } from '../../app/js/followup.js';
 import { SupabaseStore, toRow, NEEDS_DB_UPDATE } from '../../app/js/store.js';
+import { editableSnapshot, mergeTeamEdits } from '../../app/js/fields.js';
 import { FakeSupabase, TEST_URL, TEST_KEY } from '../support/fake-supabase.mjs';
 
 const lead = (over) => ({ firstName: '', lastName: '', company: '', title: '', email: '', notes: '', event: 'NPPERS 2026', tags: [], potential: '', followUpStatus: [], followUpBy: '', ...over });
@@ -97,4 +98,38 @@ test('the store saves follow-up fields only, lists the team, and says when the d
   fake.followUpColumns = false;
   await assert.rejects(store.updateFollowUp(id, { potential: 'Low' }), (err) => err.message === NEEDS_DB_UPDATE);
   await assert.rejects(store.teamList(), (err) => err.message === NEEDS_DB_UPDATE);
+});
+
+test('a phone keeps lead board edits and its own changes since it last synced', () => {
+  const sent = { firstName: 'Ana', lastName: 'Diaz', company: 'Contoso', email: 'ana@contso.example', notes: 'Met at booth', tags: ['Hot lead'], event: 'NPPERS 2026' };
+  const snapshot = editableSnapshot(sent);
+  assert.deepEqual(snapshot.tags, ['Hot lead']);
+  assert.equal(snapshot.phone, '');
+  // The board fixed the email and added a tag; the phone then added to the notes.
+  const team = { ...sent, email: 'ana@contoso.example', tags: ['Hot lead', 'Partner'], notes: 'Met at booth' };
+  const local = { ...sent, notes: 'Met at booth. Call Tuesday.' };
+  const taken = mergeTeamEdits(local, team, snapshot);
+  assert.deepEqual(taken, ['email', 'tags']);
+  assert.equal(local.email, 'ana@contoso.example');
+  assert.deepEqual(local.tags, ['Hot lead', 'Partner']);
+  assert.equal(local.notes, 'Met at booth. Call Tuesday.'); // both changed notes: the phone's latest wins
+  assert.deepEqual(mergeTeamEdits({ ...sent }, { ...sent }, snapshot), []);
+});
+
+test('the store reads one contact and saves only the details changed, moving updated_at on', async () => {
+  const { fake, store } = await signedIn();
+  const id = '33333333-3333-4333-8333-333333333333';
+  fake.leads.set(id, { ...toRow({ id, createdAt: '2026-11-03T15:00:00.000Z', updatedAt: '2026-11-03T15:00:00.000Z', firstName: 'Ana', email: 'ana@contso.example', notes: 'booth' }), potential: 'High' });
+  fake.leads.set('other', toRow({ id: 'other', firstName: 'Bo' }));
+  assert.equal((await store.get(id)).first_name, 'Ana');
+  assert.equal(await store.get('44444444-4444-4444-8444-444444444444'), null);
+  const at = await store.updateContact(id, { email: 'ana@contoso.example', tags: ['Partner'] });
+  const row = fake.leads.get(id);
+  assert.equal(row.email, 'ana@contoso.example');
+  assert.deepEqual(row.tags, ['Partner']);
+  assert.equal(row.notes, 'booth');
+  assert.equal(row.potential, 'High');
+  assert.equal(row.updated_at, at);
+  assert.ok(Date.parse(at) > Date.parse('2026-11-03T15:00:00.000Z'));
+  await assert.rejects(store.updateContact('44444444-4444-4444-8444-444444444444', { email: 'x' }), /no longer in the team list/);
 });
