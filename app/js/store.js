@@ -4,6 +4,7 @@
 // the same file name.
 
 import { AuthRequiredError, NetworkError } from './auth.js';
+import { followUpFromRow, followUpToRow } from './followup.js';
 
 export const TABLE = 'leads';
 export const BUCKET = 'card-photos';
@@ -35,6 +36,7 @@ export const DB_COLUMNS = {
 };
 
 export const NOT_ON_TEAM = "This login isn't on the InfoCapture team yet. Ask your InfoCapture admin to add you.";
+export const NEEDS_DB_UPDATE = 'The database needs the lead board update first (supabase/setup.sql). Ask your InfoCapture admin to run it.';
 
 export class StoreError extends Error {
   constructor(message, status = 0) {
@@ -60,6 +62,10 @@ export function fromRow(row) {
   for (const [key, col] of Object.entries(DB_COLUMNS)) rec[key] = row[col] ?? (key === 'tags' ? [] : '');
   return rec;
 }
+
+// A lead as the lead board and the team spreadsheet see it: the contact, its
+// follow-up, and the login that captured it.
+export const teamLeadFromRow = (row) => ({ ...fromRow(row), ...followUpFromRow(row), createdBy: row.created_by ?? '' });
 
 export const photoPath = (rec) => `${rec.id}.jpg`;
 
@@ -122,6 +128,22 @@ export class SupabaseStore {
       for (const d of data) if (d.signedUrl && !d.error) out.set(d.path, d.signedUrl);
     }
     return out;
+  }
+
+  // The lead board's follow-up changes, only the fields given.
+  async updateFollowUp(id, patch) {
+    const { data, error, status } = await this.client.from(TABLE).update(followUpToRow(patch)).eq('id', id).select('id');
+    if (error?.code === 'PGRST204') throw new StoreError(NEEDS_DB_UPDATE, status);
+    if (error) fail(error, status, 'Saving the follow-up');
+    if (!data?.length) throw new StoreError('That contact is no longer in the team list.', 404);
+  }
+
+  // The team, for the Follow-up Person list: user ID -> name.
+  async teamList() {
+    const { data, error, status } = await this.client.rpc('team_list');
+    if (error?.code === 'PGRST202') throw new StoreError(NEEDS_DB_UPDATE, status);
+    if (error) fail(error, status, 'Reading the team');
+    return new Map(data.map((p) => [p.user_id, p.name]));
   }
 
   // Read-only health check for Settings > Test connection.

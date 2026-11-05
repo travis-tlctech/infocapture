@@ -73,6 +73,14 @@ async function setup(page, { settings = SETTINGS, config = {}, signedIn = true, 
 
 const syncPill = (page) => page.locator('.sync-pill');
 
+// A row of the leads table as another phone would have saved it.
+const teamRow = (id, over = {}) => ({
+  id, captured_at: '2026-11-03T15:00:00.000Z', updated_at: '2026-11-03T15:00:00.000Z', synced_at: '2026-11-03T15:00:05.000Z',
+  first_name: '', last_name: '', company: '', title: '', email: '', phone: '', tags: [], notes: '', event: '', captured_by: '',
+  source: 'card', other_phone: '', website: '', linkedin: '', address: '', other_info: '', card_photo: '', qr_data: '',
+  potential: '', follow_up_status: [], follow_up_by: null, ...over,
+});
+
 test('scan a vCard badge, add notes and tags, and it lands in the team list', async ({ page }) => {
   const { fake, user, leaked } = await setup(page);
   await page.goto('./');
@@ -520,6 +528,99 @@ test('the team spreadsheet has everyone\'s contacts with photo links', async ({ 
   expect(sheet).toContain('>Mine</t>');
   expect(sheet).toContain('>View photo</t>');
   expect(files.get('xl/worksheets/_rels/sheet1.xml.rels')).toContain(`${TEST_URL}/storage/v1/object/sign/card-photos/22222222-2222-4222-8222-222222222222.jpg?token=signed-604800`);
-  expect(files.get('xl/tables/table1.xml')).toContain('ref="A1:U3"');
+  expect(files.get('xl/tables/table1.xml')).toContain('ref="A1:Y3"'); // 21 contact columns and 4 follow-up
   await expect(page.locator('#toast')).toContainText('Spreadsheet ready: 2 contacts');
+});
+
+test('the lead board: metric tiles, filters, Initial Contact, and follow-up saved for the team', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const { fake, user } = await setup(page);
+  user.teamName = 'Travis Cryan';
+  const rick = fake.addUser({ email: 'rick@example.com', teamName: 'Rick Christ' });
+  const [A, B, C, D] = ['a', 'b', 'c', 'd'].map((x) => `${x.repeat(8)}-0000-4000-8000-000000000000`);
+  fake.leads.set(A, teamRow(A, { first_name: 'Ana', last_name: 'Diaz', title: 'HR Director', company: 'Contoso Health', email: 'ana@contoso.example', tags: ['Hot lead'], event: 'NPPERS 2026', created_by: rick.id, captured_by: 'Rick', card_photo: `${A}.jpg` }));
+  fake.objects.set(`${A}.jpg`, { contentType: 'image/jpeg', size: 9000 });
+  // Travis met Ana again the next day: Rick stays her Initial Contact.
+  fake.leads.set(B, teamRow(B, { first_name: 'Ana', last_name: 'Diaz', company: 'Contoso Health', email: 'ANA@contoso.example', event: 'NPPERS 2026', created_by: user.id, captured_by: 'Travis', captured_at: '2026-11-04T10:00:00.000Z', notes: 'Wants the pilot' }));
+  fake.leads.set(C, teamRow(C, { first_name: 'Bo', last_name: 'Chen', company: 'Fabrikam', email: 'bo@fabrikam.example', event: 'NPPERS 2026', created_by: user.id, captured_by: 'Travis', captured_at: '2026-11-03T12:00:00.000Z', potential: 'Low', follow_up_status: ['Not Interested/No Response'] }));
+  fake.leads.set(D, teamRow(D, { first_name: 'Cy', last_name: 'Park', company: 'Tailspin Toys', event: 'IAEM 2026', created_by: rick.id, captured_by: 'Rick', captured_at: '2026-11-07T09:00:00.000Z', follow_up_status: ['Initial Email Sent', 'Call Booked'], follow_up_by: rick.id }));
+
+  await page.goto('./');
+  await page.getByRole('link', { name: 'Lead board' }).click();
+  await expect(page).toHaveURL(/\/leads\/$/);
+  const tile = (key) => page.locator(`[data-metric=${key}] .num`);
+  const row = (name) => page.locator('tbody tr', { hasText: name });
+  await expect(tile('total')).toHaveText('4');
+  await expect(page.locator('[data-metric=total] .per-event')).toHaveText(/NPPERS 2026\s*3\s*IAEM 2026\s*1/);
+  await expect(tile('conversation')).toHaveText('0');
+  await expect(tile('call')).toHaveText('1');
+  await expect(tile('dead')).toHaveText('1');
+  await expect(row('Ana Diaz')).toHaveCount(2);
+  for (const r of await row('Ana Diaz').all()) await expect(r.locator('[data-col=initialContact]')).toContainText('Rick Christ');
+  await expect(row('Cy Park').locator('[data-col=followUpStatus]')).toHaveText(/Email 1\s*Call booked/);
+  await shot(page, '12-lead-board');
+
+  await page.locator('#filters select[name=event]').selectOption('NPPERS 2026');
+  await expect(tile('total')).toHaveText('3');
+  await expect(tile('call')).toHaveText('0');
+  await expect(row('Cy Park')).toHaveCount(0);
+
+  // Follow-up on Bo: Potential, a status, and who follows up.
+  await page.getByRole('button', { name: 'Bo Chen' }).click();
+  const drawer = page.locator('#lead');
+  await expect(drawer).toBeVisible();
+  await drawer.getByRole('button', { name: 'High' }).click();
+  await expect.poll(() => fake.leads.get(C).potential).toBe('High');
+  await drawer.getByLabel('Email Conversation Started').check();
+  await expect.poll(() => fake.leads.get(C).follow_up_status).toEqual(['Email Conversation Started', 'Not Interested/No Response']);
+  await drawer.getByLabel('Follow-up person').selectOption({ label: 'Rick Christ' });
+  await expect.poll(() => fake.leads.get(C).follow_up_by).toBe(rick.id);
+  await expect(drawer.locator('#save-state')).toHaveText('Saved');
+  await expect(tile('conversation')).toHaveText('1');
+  expect(fake.leads.get(C).notes).toBe(''); // contact details are left alone
+  await shot(page, '13-lead-details');
+  await drawer.getByRole('button', { name: 'Close' }).click();
+  await expect(row('Bo Chen').locator('[data-col=potential]')).toHaveText('High');
+  await expect(row('Bo Chen').locator('[data-col=followUpBy]')).toHaveText('Rick Christ');
+
+  // Ana's later capture lists Rick's, which has the card photo.
+  await row('Ana Diaz').first().click(); // newest first: Travis's capture
+  await expect(drawer.locator('.details')).toContainText('Wants the pilot');
+  await expect(drawer.locator('.details')).toContainText('Also captured');
+  await drawer.getByRole('button', { name: /^Rick Christ, / }).click();
+  await expect(drawer.locator('#lead-photo img')).toHaveAttribute('src', new RegExp(`card-photos/${A}\\.jpg\\?token=signed-3600`));
+  await drawer.getByRole('button', { name: 'Close' }).click();
+
+  // The filter is remembered, and the spreadsheet has what is shown.
+  await page.reload();
+  await expect(page.locator('#filters select[name=event]')).toHaveValue('NPPERS 2026');
+  await expect(tile('conversation')).toHaveText('1');
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: /Spreadsheet/ }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toMatch(/^InfoCapture leads NPPERS 2026 \d{4}-\d{2}-\d{2}\.xlsx$/);
+  const sheet = unzip(await (await file.createReadStream()).toArray().then((c) => Buffer.concat(c))).get('xl/worksheets/sheet1.xml');
+  expect(sheet).toContain('>Email Conversation Started, Not Interested/No Response</t>');
+  expect(sheet).toContain('>Rick Christ</t>');
+  expect(sheet).not.toContain('Tailspin');
+});
+
+test('the lead board on a phone: sign in there, and a clear message before the database update', async ({ page }) => {
+  const { fake } = await setup(page, { signedIn: false });
+  fake.followUpColumns = false;
+  const A = 'aaaaaaaa-0000-4000-8000-000000000000';
+  fake.leads.set(A, teamRow(A, { first_name: 'Ana', last_name: 'Diaz', company: 'Contoso Health', event: 'NPPERS 2026', captured_by: 'Rick', tags: ['Hot lead'] }));
+  await page.goto('./leads/');
+  await page.locator('[name=email]').fill(EMAIL);
+  await page.locator('[name=password]').fill(PASSWORD);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.locator('.banner.warn')).toContainText('needs the lead board update');
+  await expect(page.locator('[data-metric=total] .num')).toHaveText('1');
+  await expect(page.locator('tbody tr [data-col=initialContact]')).toContainText('Rick');
+  await shot(page, '14-lead-board-phone');
+  await page.getByRole('button', { name: 'Ana Diaz' }).click();
+  await expect(page.locator('#lead').getByRole('button', { name: 'High' })).toBeDisabled();
+  await page.locator('#lead').getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('link', { name: 'Back to capture' }).click();
+  await expect(page.getByRole('button', { name: /Snap card/ })).toBeVisible();
 });

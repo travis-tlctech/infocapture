@@ -145,6 +145,17 @@ h1, h2, h3 { margin: 0; line-height: 1.25; font-family: var(--font-head); font-w
 .brand { display: flex; align-items: center; gap: 8px; font-family: var(--font-head); font-weight: 800; font-size: 19px; letter-spacing: 0.01em; flex: 1; color: #FFFFFF; }
 /* InfoCapture's own icon, in the Snap card colours (glowing cyan on navy). */
 .brand .logo { width: 30px; height: 30px; flex: none; }
+.brand { min-width: 0; }
+.brand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Small phones: room for the name, the sync status and both buttons. */
+@media (max-width: 389px) {
+  .topbar { gap: 4px; padding-left: 10px; padding-right: 6px; }
+  .brand { gap: 6px; font-size: 17px; }
+  .brand .logo { width: 26px; height: 26px; }
+  .topbar-actions { gap: 0; }
+  .topbar-actions .icon-btn { width: 40px; }
+  .sync-pill { padding: 0 9px; gap: 4px; }
+}
 .topbar-actions { display: flex; align-items: center; gap: 4px; }
 
 .page {

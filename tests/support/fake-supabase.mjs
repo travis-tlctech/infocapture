@@ -21,11 +21,12 @@ export class FakeSupabase {
     this.objects = new Map(); // path -> { contentType, size, upsert }
     this.requests = [];
     this.n = 0;
+    this.followUpColumns = true; // false: a database without the lead board update
   }
 
-  addUser({ email, password = 'correct horse', member = true, name } = {}) {
+  addUser({ email, password = 'correct horse', member = true, name, teamName = '' } = {}) {
     const id = `00000000-0000-4000-8000-${String(++this.n).padStart(12, '0')}`;
-    const user = { id, email, password, member, name };
+    const user = { id, email, password, member, name, teamName };
     this.users.set(email.toLowerCase(), user);
     return user;
   }
@@ -96,6 +97,11 @@ export class FakeSupabase {
 
     // ---------- database ----------
     if (u.pathname === '/rest/v1/rpc/is_team_member' && method === 'POST') return json(200, caller.member);
+    if (u.pathname === '/rest/v1/rpc/team_list' && method === 'POST') {
+      if (!this.followUpColumns) return json(404, { code: 'PGRST202', message: 'Could not find the function public.team_list without parameters in the schema cache' });
+      const team = caller.member ? [...this.users.values()].filter((x) => x.member).map((x) => ({ user_id: x.id, name: x.teamName || x.email })) : [];
+      return json(200, team.sort((a, b) => a.name.localeCompare(b.name)));
+    }
 
     if (u.pathname === '/rest/v1/leads') {
       const denied = () => json(403, { code: '42501', message: 'new row violates row-level security policy for table "leads"', details: null, hint: null });
@@ -107,6 +113,15 @@ export class FakeSupabase {
           this.leads.set(row.id, { ...(existing ?? { created_by: caller.id }), ...row });
         }
         return empty(201);
+      }
+      if (method === 'PATCH') {
+        const id = (u.searchParams.get('id') ?? '').replace(/^eq\./, '');
+        const patch = parse();
+        const unknown = Object.keys(patch).find((k) => !this.followUpColumns && ['potential', 'follow_up_status', 'follow_up_by'].includes(k));
+        if (unknown) return json(400, { code: 'PGRST204', message: `Could not find the '${unknown}' column of 'leads' in the schema cache` });
+        const row = caller.member ? this.leads.get(id) : undefined;
+        if (row) Object.assign(row, patch);
+        return json(200, row ? [{ id }] : []);
       }
       if (method === 'DELETE') {
         const id = (u.searchParams.get('id') ?? '').replace(/^eq\./, '');

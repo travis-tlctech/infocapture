@@ -2,7 +2,7 @@ import * as db from './js/db.js';
 import { getSettings, saveSettings, isConfigured, getState, setState, DEFAULT_TAGS } from './js/settings.js';
 import * as auth from './js/auth.js';
 import { Syncer, needsSync, RESTORED } from './js/sync.js';
-import { NOT_ON_TEAM, fromRow } from './js/store.js';
+import { NOT_ON_TEAM, teamLeadFromRow } from './js/store.js';
 import { CONTACT_FIELDS, SOURCE_LABELS, emptyContact, displayName, applyReading } from './js/fields.js';
 import { parseQr, worthAskingCardReader, encodeSetup, decodeSetup } from './js/parsers.js';
 import { QrScanner, decodeQrFromFile } from './js/scanner.js';
@@ -10,6 +10,7 @@ import { prepareImage } from './js/image.js';
 import { readCardPhoto, readQrText, pingCardReader } from './js/cardreader.js';
 import { toCsv, toVCard, teamWorkbook, shareOrDownload } from './js/exporters.js';
 import { XLSX_TYPE } from './js/xlsx.js';
+import { withInitialContact } from './js/followup.js';
 import { teamEvents, localDay, runningOn, pickerEvents, autoEvent, dateRange } from './js/events.js';
 
 const app = document.getElementById('app');
@@ -194,6 +195,7 @@ async function renderHome() {
       <div class="brand">${LOGO}<span>InfoCapture</span></div>
       <div class="topbar-actions">
         <span id="sync-pill">${syncPill()}</span>
+        <a class="icon-btn" href="leads/" aria-label="Lead board">${icon('board')}</a>
         <a class="icon-btn" href="#/settings" aria-label="Settings">${icon('sliders')}</a>
       </div>
     </header>
@@ -767,9 +769,12 @@ async function renderSettings() {
       </form>
 
       <section class="card">
-        <h2>Team spreadsheet</h2>
-        <p class="hint">Everyone's contacts in one Excel file. The card photo links in it work for ${PHOTO_LINK_DAYS} days; download again for fresh ones.</p>
-        <button type="button" class="btn ghost" data-action="download-team" ${account ? '' : 'disabled'}>${icon('download', 'small')} Download spreadsheet</button>
+        <h2>Team leads</h2>
+        <p class="hint">The lead board shows everyone's contacts with their follow-up and metrics; it works best on a laptop. The spreadsheet is everyone's contacts in one Excel file; its card photo links work for ${PHOTO_LINK_DAYS} days, so download again for fresh ones.</p>
+        <div class="row-buttons">
+          <a class="btn ghost" href="leads/">${icon('board', 'small')} Open the lead board</a>
+          <button type="button" class="btn ghost" data-action="download-team" ${account ? '' : 'disabled'}>${icon('download', 'small')} Download spreadsheet</button>
+        </div>
       </section>
 
       <section class="card">
@@ -1044,11 +1049,14 @@ const actions = {
     toast('Building the spreadsheet...', { timeout: 0 });
     try {
       const store = syncer.getStore();
-      const records = (await store.listAll()).map(fromRow);
+      // Team names for Initial Contact and Follow-up Person; none before the
+      // lead board update, when Initial Contact falls back to Captured By.
+      const people = await store.teamList().catch(() => new Map());
+      const records = withInitialContact((await store.listAll()).map(teamLeadFromRow), people);
       const paths = records.map((r) => r.cardPhotoPath).filter(Boolean);
       const links = paths.length ? await store.signedUrls(paths, PHOTO_LINK_DAYS * 86400) : new Map();
       const stamp = new Date().toISOString().slice(0, 10);
-      const result = await shareOrDownload(`InfoCapture leads ${stamp}.xlsx`, teamWorkbook(records, links), XLSX_TYPE);
+      const result = await shareOrDownload(`InfoCapture leads ${stamp}.xlsx`, teamWorkbook(records, links, people), XLSX_TYPE);
       toast(result === 'cancelled' ? 'Cancelled' : `Spreadsheet ready: ${records.length} contact${records.length === 1 ? '' : 's'}`);
     } finally {
       btn.disabled = false;

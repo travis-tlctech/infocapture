@@ -32,6 +32,7 @@ The app talks to Supabase directly with the person's own sign-in. Database rules
 | `app/` | The web app. Plain HTML, CSS and JavaScript modules, no build step. Deploy this folder. |
 | `app/config.js` | The one file to fill in: the Supabase project URL and publishable key, and the card reader URL. |
 | `brand/` | TLC_TRNG wordmark masters for the Settings sign-off (`npm run assets`). |
+| `app/leads/` | The lead board: follow-up, filters and metric tiles (`leads.js`, with the rules in `app/js/followup.js`). |
 | `supabase/` | `setup.sql` (tables, rules and photo bucket), `add-team-member.sql`, `set-password.sql`, and their tests. |
 | `backend/card-reader/` | The AWS Lambda (Node.js), its CloudFormation template, and the deploy scripts. |
 | `tests/` | Unit tests and browser tests (fake camera, simulated Supabase). |
@@ -133,11 +134,23 @@ Many event badges only carry an attendee ID for the organiser's paid lead-retrie
 
 **Settings > Download spreadsheet** builds an Excel file of everyone's contacts, with one table (`InfoCaptureLeads`, filter buttons on every column):
 
-`Captured At, First Name, Last Name, Company, Title, Email, Phone, Tags, Notes, Event, Captured By, Source, Other Phone, Website, LinkedIn, Address, Other Info, Card Photo, QR Data, Updated At, ID`
+`Captured At, First Name, Last Name, Company, Title, Email, Phone, Tags, Notes, Event, Captured By, Initial Contact, Potential, Follow-up Status, Follow-up Person, Source, Other Phone, Website, LinkedIn, Address, Other Info, Card Photo, QR Data, Updated At, ID`
 
 - **Card Photo** links open the photo for 7 days; download again for fresh links. The photos stay private in Supabase.
 - Every cell is plain text, a date or a link, so a malicious QR code cannot inject a formula. (The CSV export marks risky text with a leading apostrophe for the same reason.)
 - The spreadsheet is a copy. Changes made in it do not flow back; edit contacts in the app.
+
+## The lead board
+
+For following up after an event: the app's address plus `/leads` (the chart button at the top of the app, or **Settings > Open the lead board**). It shares the app's sign-in and works best on a laptop; on a phone each lead is a card.
+
+- **Tiles**: leads captured (per event), lead to conversation (**Email Conversation Started**), lead to call booked (**Call Booked**), moved to BD pipeline (**Moved to BD Pipeline**) and dead leads (**Not Interested/No Response**), each as a count and a share of the leads shown. Each counts its own status only, so tick every status that applies.
+- **Table**: Event, Name, Organization, Email, Tags, Initial Contact, Potential, Status and Follow-up, with filters for event, follow-up person, potential and status, and a search. Click a heading to sort.
+- **Initial Contact** is the team member who captured the person first. Captures of the same person (the same email or badge code) all show that first person, and the details list the other captures.
+- **Click a lead** for its details and card photo, and to set **Potential** (High, Medium, Low), **Status** (several at once) and **Follow-up person** (someone on the team). Changes save straight away for the whole team. Contact details stay as captured.
+- **Spreadsheet** downloads the leads shown, with their follow-up.
+
+The follow-up fields are columns in the `leads` table (`potential`, `follow_up_status`, `follow_up_by`); the capture app never sends them, so a phone saving a contact again leaves them alone. Names in the Follow-up list come from `team_members.name` (set with `add-team-member.sql`).
 
 ## Costs
 

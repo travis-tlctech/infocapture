@@ -41,6 +41,17 @@ export const COLUMNS = [
   { key: 'id', header: 'ID', width: 38 },
 ];
 
+// The team spreadsheet also has, after Captured By, the team member who
+// captured the person first (see withInitialContact) and the follow-up from
+// the lead board.
+export const TEAM_COLUMNS = COLUMNS.flatMap((c) => c.key !== 'capturedBy' ? [c] : [
+  c,
+  { key: 'initialContact', header: 'Initial Contact', width: 16 },
+  { key: 'potential', header: 'Potential', width: 10 },
+  { key: 'followUpStatus', header: 'Follow-up Status', kind: 'list', width: 30 },
+  { key: 'followUpBy', header: 'Follow-up Person', kind: 'person', width: 18 },
+]);
+
 export const SOURCE_LABELS = { qr: 'Badge QR', card: 'Card photo', manual: 'Typed' };
 
 export function emptyContact() {

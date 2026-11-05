@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildXlsx, columnLetter, excelSerial, crc32 } from '../../app/js/xlsx.js';
 import { teamWorkbook } from '../../app/js/exporters.js';
-import { COLUMNS } from '../../app/js/fields.js';
+import { COLUMNS, TEAM_COLUMNS } from '../../app/js/fields.js';
 import { unzip } from '../support/unzip.mjs';
 
 test('column letters and CRC32', () => {
@@ -52,14 +52,22 @@ test('the team spreadsheet has every column, source labels and photo links', () 
   const rec = {
     id: 'id-1', createdAt: '2026-10-20T15:04:00.000Z', updatedAt: '2026-10-20T15:10:00.000Z', firstName: 'Priya', lastName: 'Raman',
     tags: ['Hot lead', 'Send info'], source: 'card', cardPhotoPath: 'id-1.jpg', phone: '+1 646 555 0188',
+    potential: 'High', followUpStatus: ['Initial Email Sent', 'Call Booked'], followUpBy: 'user-t', initialContact: 'Rick Christ',
   };
-  const files = unzip(teamWorkbook([rec, { id: 'id-2', createdAt: '2026-10-20T16:00:00.000Z', firstName: 'Bo', source: 'manual', cardPhotoPath: '' }], new Map([['id-1.jpg', 'https://test.supabase.co/storage/v1/object/sign/card-photos/id-1.jpg?token=t']])));
+  const files = unzip(teamWorkbook(
+    [rec, { id: 'id-2', createdAt: '2026-10-20T16:00:00.000Z', firstName: 'Bo', source: 'manual', cardPhotoPath: '', followUpBy: 'user-gone' }],
+    new Map([['id-1.jpg', 'https://test.supabase.co/storage/v1/object/sign/card-photos/id-1.jpg?token=t']]),
+    new Map([['user-t', 'Travis Cryan']]),
+  ));
   const sheet = files.get('xl/worksheets/sheet1.xml');
-  for (const c of COLUMNS) assert.ok(sheet.includes(`>${c.header}</t>`), c.header);
+  for (const c of TEAM_COLUMNS) assert.ok(sheet.includes(`>${c.header}</t>`), c.header);
+  assert.equal(TEAM_COLUMNS.length, COLUMNS.length + 4);
+  assert.ok(sheet.includes('>High</t>') && sheet.includes('>Initial Email Sent, Call Booked</t>') && sheet.includes('>Travis Cryan</t>') && sheet.includes('>Rick Christ</t>'));
+  assert.ok(!sheet.includes('user-gone'), 'an unknown person shows blank, not an ID');
   assert.ok(sheet.includes('>Hot lead, Send info</t>'));
   assert.ok(sheet.includes('>Card photo</t>') && sheet.includes('>Typed</t>'));
   assert.ok(sheet.includes('>+1 646 555 0188</t>'), 'phone numbers stay text, no apostrophe needed');
   assert.ok(sheet.includes('>View photo</t>'));
   assert.equal((files.get('xl/worksheets/_rels/sheet1.xml.rels').match(/TargetMode="External"/g) ?? []).length, 1);
-  assert.ok(files.get('xl/tables/table1.xml').includes(`ref="A1:U3"`));
+  assert.ok(files.get('xl/tables/table1.xml').includes(`ref="A1:Y3"`));
 });

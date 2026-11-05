@@ -31,6 +31,21 @@ do $$ begin
   if (select notes from public.leads) <> 'edited' then raise exception 'upsert did not update'; end if;
   if (select created_by from public.leads) <> '00000000-0000-0000-0000-00000000000a' then raise exception 'created_by not set'; end if;
 end $$;
+-- Follow-up from the lead board, then the app saving the contact again:
+-- the app's upsert names only its own columns, so the follow-up stays.
+update public.leads set potential = 'High', follow_up_status = '{"Initial Email Sent","Call Booked"}',
+  follow_up_by = '00000000-0000-0000-0000-00000000000a'
+where id = '11111111-1111-1111-1111-111111111111';
+insert into public.leads (id, captured_at, updated_at, first_name, notes)
+values ('11111111-1111-1111-1111-111111111111', now(), now(), 'Jordan', 'edited')
+on conflict (id) do update set first_name = excluded.first_name, notes = excluded.notes, updated_at = excluded.updated_at;
+do $$ begin
+  if (select potential from public.leads) <> 'High' then raise exception 'follow-up potential lost'; end if;
+  if (select follow_up_status from public.leads) <> '{"Initial Email Sent","Call Booked"}' then raise exception 'follow-up status lost'; end if;
+  if (select follow_up_by from public.leads) <> '00000000-0000-0000-0000-00000000000a' then raise exception 'follow-up person lost'; end if;
+  -- add-team-member.sql ran twice: the second name wins.
+  if (select array_agg(name) from public.team_list()) <> '{"Member One"}' then raise exception 'team_list should be the named member'; end if;
+end $$;
 insert into storage.objects (bucket_id, name) values ('card-photos', '11111111-1111-1111-1111-111111111111.jpg');
 select pg_temp.expect_denied($$insert into storage.objects (bucket_id, name) values ('some-other-bucket', 'x.jpg')$$);
 
@@ -41,10 +56,11 @@ do $$ begin
   if (select count(*) from public.leads) <> 0 then raise exception 'outsider can see leads'; end if;
   if (select count(*) from storage.objects) <> 0 then raise exception 'outsider can see card photos'; end if;
   if (select count(*) from public.team_members) <> 0 then raise exception 'outsider can see the team'; end if;
+  if (select count(*) from public.team_list()) <> 0 then raise exception 'outsider can list the team'; end if;
 end $$;
 select pg_temp.expect_denied($$insert into public.leads (id, captured_at, updated_at) values (gen_random_uuid(), now(), now())$$);
 select pg_temp.expect_denied($$insert into storage.objects (bucket_id, name) values ('card-photos', 'y.jpg')$$);
-update public.leads set notes = 'hacked';
+update public.leads set notes = 'hacked', potential = 'Low';
 delete from public.leads;
 
 -- The publishable key alone (anon).
@@ -53,6 +69,7 @@ set role anon;
 select set_config('request.jwt.claim.sub', '', false);
 select pg_temp.expect_denied($$select count(*) from public.leads$$);
 select pg_temp.expect_denied($$select public.is_team_member()$$);
+select pg_temp.expect_denied($$select * from public.team_list()$$);
 select pg_temp.expect_denied($$insert into public.team_members (user_id, email) values ('00000000-0000-0000-0000-00000000000b', 'x')$$);
 do $$ begin
   if (select count(*) from storage.objects) <> 0 then raise exception 'anon can see card photos'; end if;
@@ -62,6 +79,7 @@ end $$;
 reset role;
 do $$ begin
   if (select notes from public.leads) <> 'edited' then raise exception 'outsider changed a lead'; end if;
+  if (select potential from public.leads) <> 'High' then raise exception 'outsider changed the follow-up'; end if;
   if (select public from storage.buckets where id = 'card-photos') then raise exception 'bucket is public'; end if;
 end $$;
 

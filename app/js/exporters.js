@@ -1,21 +1,23 @@
 // Exports: the team spreadsheet (everyone's contacts, as .xlsx), and CSV and
 // vCard files of what is stored on this device.
 
-import { COLUMNS, SOURCE_LABELS, excelDate, displayName } from './fields.js';
+import { COLUMNS, TEAM_COLUMNS, SOURCE_LABELS, excelDate, displayName } from './fields.js';
 import { buildXlsx } from './xlsx.js';
 
-// records: contacts from the team list; photoLinks: card photo path -> link.
-export function teamWorkbook(records, photoLinks = new Map()) {
+// records: contacts from the team list, with their follow-up; photoLinks:
+// card photo path -> link; people: user ID -> name (Follow-up Person).
+export function teamWorkbook(records, photoLinks = new Map(), people = new Map()) {
   const rows = records.map((rec) =>
-    COLUMNS.map((c) => {
+    TEAM_COLUMNS.map((c) => {
       const v = rec[c.key];
       if (c.kind === 'list') return (v ?? []).join(', ');
       if (c.kind === 'source') return SOURCE_LABELS[v] ?? v ?? '';
       if (c.kind === 'photo') return v && photoLinks.get(v) ? { url: photoLinks.get(v), text: 'View photo' } : '';
+      if (c.kind === 'person') return v ? people.get(v) ?? '' : '';
       return v ?? '';
     }),
   );
-  const columns = COLUMNS.map((c) => ({ header: c.header, width: c.width, kind: c.kind === 'photo' ? 'link' : c.kind === 'date' ? 'date' : 'text' }));
+  const columns = TEAM_COLUMNS.map((c) => ({ header: c.header, width: c.width, kind: c.kind === 'photo' ? 'link' : c.kind === 'date' ? 'date' : 'text' }));
   return buildXlsx({ columns, rows, sheetName: 'Leads', tableName: 'InfoCaptureLeads' });
 }
 

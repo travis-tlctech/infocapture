@@ -4,7 +4,8 @@
 -- Creates:
 --   public.team_members  who may use InfoCapture (add people with
 --                        supabase/add-team-member.sql)
---   public.leads         one row per captured contact
+--   public.leads         one row per captured contact, with its follow-up
+--                        (set on the lead board)
 --   card-photos          a private storage bucket for card photos
 -- Only signed-in team members can read or write either. The publishable key
 -- in the app grants nothing on its own.
@@ -94,6 +95,35 @@ create policy "Team removes leads" on public.leads
 
 revoke all on public.leads from anon, authenticated;
 grant select, insert, update, delete on public.leads to authenticated;
+
+-- ---------- follow-up (the lead board) ----------
+
+-- Set on the lead board after the event. The capture app never sends these
+-- columns, so a phone that saves a contact again leaves them as they are.
+alter table public.leads add column if not exists potential text not null default '';
+alter table public.leads add column if not exists follow_up_status text[] not null default '{}';
+alter table public.leads add column if not exists follow_up_by uuid references public.team_members (user_id) on delete set null;
+
+-- The name the board shows for each person (blank: their email).
+alter table public.team_members add column if not exists name text not null default '';
+
+-- The team, for the board's Follow-up Person list; team members only.
+-- Members can otherwise see only their own team_members row.
+create or replace function public.team_list()
+returns table (user_id uuid, name text)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select t.user_id, coalesce(nullif(t.name, ''), t.email)
+  from public.team_members t
+  where public.is_team_member()
+  order by 2;
+$$;
+
+revoke all on function public.team_list() from public, anon;
+grant execute on function public.team_list() to authenticated;
 
 -- ---------- card photos ----------
 

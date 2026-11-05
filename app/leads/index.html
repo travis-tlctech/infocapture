@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="The team's leads from InfoCapture, with their follow-up.">
+  <meta name="theme-color" content="#0F2557">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Lead board · InfoCapture</title>
+  <link rel="icon" href="../icons/favicon-64.png" type="image/png">
+  <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="leads.css">
+  <script type="module" src="leads.js"></script>
+</head>
+<body class="board">
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 4.3L2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.3a2 2 0 0 0-3.4 0z"/><path d="M12 10v4M12 17.5h.01"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 15.5l-5-5L7 20"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+    <symbol id="i-cloud-off" viewBox="0 0 24 24"><path d="M7 18a4.5 4.5 0 0 1-.4-8.98 6 6 0 0 1 1.3-3.1M10.8 4.6A6 6 0 0 1 18 9.5a4 4 0 0 1 2.2 6.9M3 3l18 18"/><path d="M7 18h10"/></symbol>
+  </svg>
+  <header class="topbar">
+    <a class="icon-btn" href="../" aria-label="Back to capture"><svg class="icon" aria-hidden="true"><use href="#i-back"/></svg></a>
+    <h1>Lead board</h1>
+    <div class="topbar-actions" id="bar-actions" hidden>
+      <button type="button" class="icon-btn" data-action="refresh" aria-label="Refresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+      <button type="button" class="btn small bar-btn" data-action="download"><svg class="icon small" aria-hidden="true"><use href="#i-download"/></svg><span>Spreadsheet</span></button>
+    </div>
+  </header>
+  <main class="board-page" id="board"><p class="boot">Loading the lead board...</p></main>
+  <dialog id="lead" class="drawer" aria-label="Lead details"></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <noscript>The lead board needs JavaScript turned on.</noscript>
+</body>
+</html>
