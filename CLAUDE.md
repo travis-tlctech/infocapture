@@ -20,7 +20,7 @@ Phone-first lead capture: scan a badge QR code or snap a business card, add note
 - Tag Travis in `html_text` with `<a data-asana-gid="1211614196498999"/>`.
 - Sections: Sprint 0 `1219708887459765`, Sprint 1 `1219708887459768`, Sprint 2 `1219708887459771`, Sprint 3 `1219708887459774`, Sprint 4 `1219708887459777`, Parking Lot `1219708743920212`. Sections can be renamed, added and removed with update_project.
 - Create top-level tasks one per call, never several in one call or in parallel: Asana runs a batch in parallel and the order comes out scrambled. New tasks append to the end of their section.
-- A new subtask lands at the top of its parent, so create subtasks last to first. Re-attaching a subtask to the same parent does not move it.
+- A new subtask lands at the top of its parent, so create subtasks last to first. Re-attaching a subtask to the same parent does not move it, but detaching it (parent null) and attaching it again puts it at the top: to add a subtask after existing ones, create it, then detach and re-attach the existing ones, last to first.
 - Comment and notes HTML allows only `<body>`, `<strong>`, `<em>`, `<u>`, `<s>`, `<code>`, `<ol>`, `<ul>`, `<li>`, `<a>`, `<blockquote>`, `<pre>` (notes also allow a few more). Any other tag, `<br/>` especially, breaks it. Use plain newlines. Write `>` as `&gt;` inside HTML. Comments cannot be edited or deleted through the tools.
 
 ## Supabase
