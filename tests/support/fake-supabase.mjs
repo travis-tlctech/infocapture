@@ -22,6 +22,8 @@ export class FakeSupabase {
     this.requests = [];
     this.n = 0;
     this.followUpColumns = true; // false: a database without the lead board update
+    this.notes = []; // lead_notes rows
+    this.notesTable = true; // false: a database without the follow-up notes update
   }
 
   addUser({ email, password = 'correct horse', member = true, name, teamName = '' } = {}) {
@@ -125,7 +127,7 @@ export class FakeSupabase {
       }
       if (method === 'DELETE') {
         const id = (u.searchParams.get('id') ?? '').replace(/^eq\./, '');
-        if (caller.member) this.leads.delete(id);
+        if (caller.member && this.leads.delete(id)) this.notes = this.notes.filter((n) => n.lead_id !== id);
         return empty();
       }
       if (method === 'GET' || method === 'HEAD') {
@@ -137,6 +139,30 @@ export class FakeSupabase {
         const limit = Number(u.searchParams.get('limit') ?? all.length);
         const page = all.slice(offset, offset + limit);
         return json(200, page, { 'content-range': `${offset}-${offset + page.length - 1}/*` });
+      }
+    }
+
+    if (u.pathname === '/rest/v1/lead_notes') {
+      if (!this.notesTable) return json(404, { code: 'PGRST205', message: "Could not find the table 'public.lead_notes' in the schema cache" });
+      const eq = (k) => u.searchParams.get(k)?.replace(/^eq\./, '');
+      if (method === 'GET') {
+        const lead = eq('lead_id');
+        const all = caller.member ? this.notes.filter((n) => !lead || n.lead_id === lead).sort((a, b) => a.created_at.localeCompare(b.created_at)) : [];
+        const offset = Number(u.searchParams.get('offset') ?? 0);
+        return json(200, all.slice(offset, offset + Number(u.searchParams.get('limit') ?? all.length)));
+      }
+      if (method === 'POST') {
+        if (!caller.member) return json(403, { code: '42501', message: 'new row violates row-level security policy for table "lead_notes"' });
+        // As the database's trigger does: the author and time are stamped here.
+        const rows = [].concat(parse()).map((r) => ({ id: crypto.randomUUID(), lead_id: r.lead_id, body: r.body, author: caller.id, author_name: caller.teamName || caller.email, created_at: new Date(Date.now() + ++this.n).toISOString() }));
+        if (rows.some((r) => !String(r.body ?? '').trim())) return json(400, { code: '23514', message: 'new row for relation "lead_notes" violates check constraint "lead_notes_body_check"' });
+        this.notes.push(...rows);
+        return json(201, rows);
+      }
+      if (method === 'DELETE') {
+        const gone = this.notes.filter((n) => n.id === eq('id') && n.author === caller.id && caller.member);
+        this.notes = this.notes.filter((n) => !gone.includes(n));
+        return json(200, gone.map((n) => ({ id: n.id })));
       }
     }
 

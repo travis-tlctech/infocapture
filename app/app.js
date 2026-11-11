@@ -10,7 +10,7 @@ import { prepareImage } from './js/image.js';
 import { readCardPhoto, readQrText, pingCardReader } from './js/cardreader.js';
 import { toCsv, toVCard, teamWorkbook, shareOrDownload } from './js/exporters.js';
 import { XLSX_TYPE } from './js/xlsx.js';
-import { withInitialContact } from './js/followup.js';
+import { withInitialContact, withNotesText } from './js/followup.js';
 import { teamEvents, localDay, runningOn, pickerEvents, autoEvent, dateRange } from './js/events.js';
 
 const app = document.getElementById('app');
@@ -1052,7 +1052,8 @@ const actions = {
       // Team names for Initial Contact and Follow-up Person; none before the
       // lead board update, when Initial Contact falls back to Captured By.
       const people = await store.teamList().catch(() => new Map());
-      const records = withInitialContact((await store.listAll()).map(teamLeadFromRow), people);
+      const notes = await store.listNotes().catch(() => []); // none before the follow-up notes update
+      const records = withNotesText(withInitialContact((await store.listAll()).map(teamLeadFromRow), people), notes);
       const paths = records.map((r) => r.cardPhotoPath).filter(Boolean);
       const links = paths.length ? await store.signedUrls(paths, PHOTO_LINK_DAYS * 86400) : new Map();
       const stamp = new Date().toISOString().slice(0, 10);

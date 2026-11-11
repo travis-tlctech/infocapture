@@ -134,7 +134,7 @@ Many event badges only carry an attendee ID for the organiser's paid lead-retrie
 
 **Settings > Download spreadsheet** builds an Excel file of everyone's contacts, with one table (`InfoCaptureLeads`, filter buttons on every column):
 
-`Captured At, First Name, Last Name, Company, Title, Email, Phone, Tags, Notes, Event, Captured By, Initial Contact, Potential, Follow-up Status, Follow-up Person, Source, Other Phone, Website, LinkedIn, Address, Other Info, Card Photo, QR Data, Updated At, ID`
+`Captured At, First Name, Last Name, Company, Title, Email, Phone, Tags, Notes, Event, Captured By, Initial Contact, Potential, Follow-up Status, Follow-up Person, Follow-up Notes, Source, Other Phone, Website, LinkedIn, Address, Other Info, Card Photo, QR Data, Updated At, ID`
 
 - **Card Photo** links open the photo for 7 days; download again for fresh links. The photos stay private in Supabase.
 - Every cell is plain text, a date or a link, so a malicious QR code cannot inject a formula. (The CSV export marks risky text with a leading apostrophe for the same reason.)
@@ -147,11 +147,14 @@ For following up after an event: the app's address plus `/leads` (the chart butt
 - **Tiles**: leads captured (per event), lead to conversation (**Email Conversation Started**), lead to call booked (**Call Booked**), moved to BD pipeline (**Moved to BD Pipeline**) and dead leads (**Not Interested/No Response**), each as a count and a share of the leads shown. Each counts its own status only, so tick every status that applies.
 - **Table**: Event, Name, Organization, Email, Tags, Initial Contact, Potential, Status and Follow-up, with filters for event, initial contact, follow-up person, potential and status, and a search. Click a heading to sort.
 - **Initial Contact** is the team member who captured the person first. Captures of the same person (the same email or badge code) all show that first person, and the details list the other captures.
-- **Click a lead** for its details and card photo, and to set **Potential** (High, Medium, Low), **Status** (several at once) and **Follow-up person** (someone on the team). Changes save straight away for the whole team.
+- **Click a lead** for its card photo, contact details and follow-up, in that order. Set **Potential** (High, Medium, Low), **Status** (several at once) and **Follow-up person** (someone on the team); changes save straight away for the whole team.
+- **Follow-up notes** on a lead are a log of updates and conversations, newest first. Each entry is stamped by the database with who wrote it and when; anyone on the team can add one, only its author can delete it, and entries are never edited. Cmd+Enter (Ctrl+Enter) adds the note being typed. The spreadsheet has them in a Follow-up Notes column.
 - **Edit** on a lead corrects its details (name, company, title, email, phones, website, LinkedIn, address, event, tags, notes). The phone that captured the contact still has its own copy; when that contact is next saved on the phone, the phone takes the board's corrections and adds only what it changed itself since it last synced (if both changed the same field, the phone's latest wins).
 - **Spreadsheet** downloads the leads shown, with their follow-up.
 
-The follow-up fields are columns in the `leads` table (`potential`, `follow_up_status`, `follow_up_by`); the capture app never sends them, so a phone saving a contact again leaves them alone. Contact edits move `updated_at` on, which is how a phone notices them (`syncRecord` in `app/js/sync.js`). Names in the Follow-up list come from `team_members.name` (set with `add-team-member.sql`).
+The follow-up fields are columns in the `leads` table (`potential`, `follow_up_status`, `follow_up_by`); the capture app never sends them, so a phone saving a contact again leaves them alone. Contact edits move `updated_at` on, which is how a phone notices them (`syncRecord` in `app/js/sync.js`). Follow-up notes are rows in `lead_notes` (author and time set by a trigger; deleted with their lead).
+
+When a newer version is published, the board offers **Update** itself, as the app does. Names in the Follow-up list come from `team_members.name` (set with `add-team-member.sql`).
 
 ## Costs
 

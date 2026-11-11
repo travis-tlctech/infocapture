@@ -72,6 +72,7 @@ export const TEAM_COLUMNS = COLUMNS.flatMap((c) => c.key !== 'capturedBy' ? [c] 
   { key: 'potential', header: 'Potential', width: 10 },
   { key: 'followUpStatus', header: 'Follow-up Status', kind: 'list', width: 30 },
   { key: 'followUpBy', header: 'Follow-up Person', kind: 'person', width: 18 },
+  { key: 'followUpNotes', header: 'Follow-up Notes', width: 50 },
 ]);
 
 export const SOURCE_LABELS = { qr: 'Badge QR', card: 'Card photo', manual: 'Typed' };

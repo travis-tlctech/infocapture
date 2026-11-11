@@ -528,7 +528,7 @@ test('the team spreadsheet has everyone\'s contacts with photo links', async ({ 
   expect(sheet).toContain('>Mine</t>');
   expect(sheet).toContain('>View photo</t>');
   expect(files.get('xl/worksheets/_rels/sheet1.xml.rels')).toContain(`${TEST_URL}/storage/v1/object/sign/card-photos/22222222-2222-4222-8222-222222222222.jpg?token=signed-604800`);
-  expect(files.get('xl/tables/table1.xml')).toContain('ref="A1:Y3"'); // 21 contact columns and 4 follow-up
+  expect(files.get('xl/tables/table1.xml')).toContain('ref="A1:Z3"'); // 21 contact columns and 5 follow-up
   await expect(page.locator('#toast')).toContainText('Spreadsheet ready: 2 contacts');
 });
 
@@ -615,6 +615,7 @@ test('the lead board: metric tiles, filters, Initial Contact, and follow-up save
 test('the lead board on a phone: sign in there, and a clear message before the database update', async ({ page }) => {
   const { fake } = await setup(page, { signedIn: false });
   fake.followUpColumns = false;
+  fake.notesTable = false;
   const A = 'aaaaaaaa-0000-4000-8000-000000000000';
   fake.leads.set(A, teamRow(A, { first_name: 'Ana', last_name: 'Diaz', company: 'Contoso Health', event: 'NPPERS 2026', captured_by: 'Rick', tags: ['Hot lead'] }));
   await page.goto('./leads/');
@@ -627,6 +628,8 @@ test('the lead board on a phone: sign in there, and a clear message before the d
   await shot(page, '14-lead-board-phone');
   await page.getByRole('button', { name: 'Ana Diaz' }).click();
   await expect(page.locator('#lead').getByRole('button', { name: 'High' })).toBeDisabled();
+  await expect(page.locator('#lead').getByRole('button', { name: 'Add note' })).toBeDisabled();
+  await expect(page.locator('#fu-notes')).toContainText('needs the lead board update');
   await page.locator('#lead').getByRole('button', { name: 'Close' }).click();
   await page.getByRole('link', { name: 'Back to capture' }).click();
   await expect(page.getByRole('button', { name: /Snap card/ })).toBeVisible();
@@ -719,4 +722,53 @@ test('the phone keeps a lead board correction when it saves that contact again',
   await expect(page.locator('.item', { hasText: 'Ana' })).toContainText('Contoso Health');
   await page.locator('.item', { hasText: 'Ana' }).click();
   await expect(page.locator('[name=email]')).toHaveValue('ana@contoso.example');
+});
+
+test('lead details: photo, contact, then follow-up, with a dated note log signed by whoever wrote it', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const { fake, user } = await setup(page);
+  user.teamName = 'Travis Cryan';
+  const A = 'aaaaaaaa-0000-4000-8000-000000000000';
+  fake.leads.set(A, teamRow(A, { first_name: 'Desmond', last_name: 'DeMoss', title: 'Safety Officer', company: 'Port of Oakland', email: 'ddemoss@port.example', event: 'NPPERS 2026', card_photo: `${A}.jpg` }));
+  fake.objects.set(`${A}.jpg`, { contentType: 'image/jpeg', size: 9000 });
+  fake.notes.push({ id: 'n-rick', lead_id: A, body: 'Sent the brochure', author: 'rick-id', author_name: 'Rick Christ', created_at: '2026-11-10T16:00:00.000Z' });
+  await page.goto('./leads/');
+  await page.getByRole('button', { name: 'Desmond DeMoss' }).click();
+  const drawer = page.locator('#lead');
+  await expect(drawer.locator('.log li')).toHaveCount(1);
+  expect(await drawer.locator('.drawer-body > *').evaluateAll((els) => els.map((e) => e.id))).toEqual(['lead-photo', 'contact-card', 'fu-card']);
+  await expect(drawer.locator('.log li').first()).toContainText('Rick Christ');
+  await expect(drawer.locator('.log li').first().getByRole('button', { name: 'Delete' })).toHaveCount(0); // not Travis's
+
+  const box = drawer.getByLabel('New follow-up note');
+  await box.fill('Called, left a voicemail.\nTry again Friday.');
+  await drawer.getByRole('button', { name: 'Add note' }).click();
+  await expect(drawer.locator('.log li')).toHaveCount(2);
+  await expect(drawer.locator('.log li').first()).toContainText('Travis Cryan');
+  await expect(drawer.locator('.log li').first()).toContainText('Try again Friday.');
+  await expect(box).toHaveValue('');
+  expect(fake.notes.at(-1)).toMatchObject({ lead_id: A, author: user.id, author_name: 'Travis Cryan', body: 'Called, left a voicemail.\nTry again Friday.' });
+  // Ctrl+Enter (Cmd+Enter on a Mac) adds the note too.
+  await box.fill('Wrong lead, sorry');
+  await box.press('Control+Enter');
+  await expect(drawer.locator('.log li')).toHaveCount(3);
+  await shot(page, '16-lead-notes');
+  page.once('dialog', (d) => d.accept());
+  await drawer.locator('.log li').first().getByRole('button', { name: 'Delete' }).click();
+  await expect(drawer.locator('.log li')).toHaveCount(2);
+  expect(fake.notes.map((n) => n.body)).toEqual(['Sent the brochure', 'Called, left a voicemail.\nTry again Friday.']);
+
+  // Opened again later, the log is read from the team list.
+  await drawer.getByRole('button', { name: 'Close' }).click();
+  await page.reload();
+  await page.getByRole('button', { name: 'Desmond DeMoss' }).click();
+  await expect(drawer.locator('.log li')).toHaveCount(2);
+  await drawer.getByRole('button', { name: 'Close' }).click();
+
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: /Spreadsheet/ }).click();
+  const sheet = unzip(await (await (await download).createReadStream()).toArray().then((c) => Buffer.concat(c))).get('xl/worksheets/sheet1.xml');
+  expect(sheet).toContain('>Follow-up Notes</t>');
+  expect(sheet).toContain('Rick Christ: Sent the brochure');
+  expect(sheet).toContain('Travis Cryan: Called, left a voicemail.');
 });

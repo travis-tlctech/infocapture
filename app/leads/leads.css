@@ -132,3 +132,15 @@ dialog.drawer::backdrop { background: rgb(8 25 55 / 55%); }
 .drawer .card-photo { cursor: default; }
 .drawer .card-photo img { max-height: 320px; }
 .sign-in-card { max-width: 420px; margin: 32px auto; }
+
+/* Follow-up notes: a log, newest first. */
+.notes-title { margin-top: 6px !important; padding-top: 14px; border-top: 1px solid var(--border); }
+#add-note .field { margin-bottom: 4px; }
+#add-note textarea { font-size: 16px; min-height: 84px; }
+#add-note .row-buttons { margin: 4px 0; }
+.log { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.log li { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
+.log-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-size: 13px; color: var(--muted); }
+.log-meta b { color: var(--heading); font-family: var(--font-head); }
+.log-meta .link-btn { margin-left: auto; padding: 0; font-size: 13px; }
+.log p { margin: 4px 0 0; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }

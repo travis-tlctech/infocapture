@@ -7,6 +7,7 @@ import { AuthRequiredError, NetworkError } from './auth.js';
 import { followUpFromRow, followUpToRow } from './followup.js';
 
 export const TABLE = 'leads';
+export const NOTES = 'lead_notes';
 export const BUCKET = 'card-photos';
 const PAGE = 1000;
 
@@ -68,6 +69,8 @@ export function fromRow(row) {
 export const teamLeadFromRow = (row) => ({ ...fromRow(row), ...followUpFromRow(row), createdBy: row.created_by ?? '' });
 
 export const photoPath = (rec) => `${rec.id}.jpg`;
+
+const missingTable = (error) => error?.code === 'PGRST205' || error?.code === '42P01';
 
 // Turns a supabase-js { error, status } into the app's error types.
 function fail(error, status, what) {
@@ -155,6 +158,35 @@ export class SupabaseStore {
     if (error?.code === 'PGRST204') throw new StoreError(NEEDS_DB_UPDATE, status);
     if (error) fail(error, status, 'Saving the follow-up');
     if (!data?.length) throw new StoreError('That contact is no longer in the team list.', 404);
+  }
+
+  // Follow-up notes, oldest first: one lead's, or every lead's.
+  async listNotes(leadId) {
+    const rows = [];
+    for (let from = 0; ; from += PAGE) {
+      let query = this.client.from(NOTES).select('*');
+      if (leadId) query = query.eq('lead_id', leadId);
+      const { data, error, status } = await query.order('created_at').order('id').range(from, from + PAGE - 1);
+      if (missingTable(error)) throw new StoreError(NEEDS_DB_UPDATE, status);
+      if (error) fail(error, status, 'Reading the notes');
+      rows.push(...data);
+      if (data.length < PAGE) return rows;
+    }
+  }
+
+  // A follow-up note on a lead; the database stamps who wrote it and when.
+  async addNote(leadId, body) {
+    const { data, error, status } = await this.client.from(NOTES).insert({ lead_id: leadId, body }).select('*');
+    if (missingTable(error)) throw new StoreError(NEEDS_DB_UPDATE, status);
+    if (error) fail(error, status, 'Saving the note');
+    return data[0];
+  }
+
+  // Only the person who wrote a note can delete it (supabase/setup.sql).
+  async removeNote(id) {
+    const { data, error, status } = await this.client.from(NOTES).delete().eq('id', id).select('id');
+    if (error) fail(error, status, 'Deleting the note');
+    if (!data?.length) throw new StoreError('Only the person who wrote a note can delete it.', 403);
   }
 
   // The team, for the Follow-up Person list: user ID -> name.

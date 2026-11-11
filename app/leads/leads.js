@@ -7,7 +7,7 @@
 import { getSettings, isConfigured, getState, setState, DEFAULT_TAGS } from '../js/settings.js';
 import * as auth from '../js/auth.js';
 import { SupabaseStore, teamLeadFromRow, StoreError, NOT_ON_TEAM, NEEDS_DB_UPDATE } from '../js/store.js';
-import { withInitialContact, filterLeads, metrics, POTENTIALS, STATUSES } from '../js/followup.js';
+import { withInitialContact, withNotesText, filterLeads, metrics, POTENTIALS, STATUSES } from '../js/followup.js';
 import { CONTACT_FIELDS, SOURCE_LABELS, displayName } from '../js/fields.js';
 import { teamWorkbook, shareOrDownload } from '../js/exporters.js';
 import { XLSX_TYPE } from '../js/xlsx.js';
@@ -42,6 +42,8 @@ const state = {
   openId: null,
   editing: false, // the open lead's contact details are being edited
   photos: new Map(), // card photo path -> link
+  notes: new Map(), // lead ID -> its follow-up notes, oldest first (loaded when opened)
+  notesReady: true, // false: the database lacks the follow-up notes table
   saving: Promise.resolve(),
   pending: 0,
 };
@@ -49,9 +51,13 @@ const state = {
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const icon = (name, cls = '') => `<svg class="icon ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 
-function toast(message, timeout = 3500) {
+function toast(message, timeout = 3500, action = null) {
   const el = document.getElementById('toast');
-  el.textContent = message;
+  el.innerHTML = `<span>${esc(message)}</span>${action ? `<button type="button">${esc(action.label)}</button>` : ''}`;
+  el.querySelector('button')?.addEventListener('click', () => {
+    el.classList.remove('show');
+    action.run();
+  });
   el.classList.add('show');
   clearTimeout(toast.timer);
   if (timeout) toast.timer = setTimeout(() => el.classList.remove('show'), timeout);
@@ -68,8 +74,34 @@ async function start() {
   if (!isConfigured(s)) return notice('info', 'InfoCapture is not connected on this device yet. <a href="../#/settings">Open the app\'s settings</a>.');
   await auth.initAuth(s);
   state.store = new SupabaseStore(auth.getClient());
+  offerUpdate();
   if (!auth.getAccount()) return showSignIn();
   await load();
+}
+
+// A newer version of InfoCapture (its offline copy) has arrived while this
+// board ran on the one before: offer it here, as the app does, rather than
+// waiting until every InfoCapture tab is closed.
+async function offerUpdate() {
+  const sw = navigator.serviceWorker;
+  const reg = sw?.controller && (await sw.getRegistration().catch(() => null));
+  if (!reg) return;
+  const offer = (next) => toast('A new version of the board is ready.', 0, { label: 'Update', run: () => next.postMessage('skipWaiting') });
+  let reloading = false;
+  sw.addEventListener('controllerchange', () => {
+    if (!reloading) {
+      reloading = true;
+      location.reload();
+    }
+  });
+  if (reg.waiting) offer(reg.waiting);
+  reg.addEventListener('updatefound', () => {
+    const next = reg.installing;
+    next?.addEventListener('statechange', () => {
+      if (next.state === 'installed') offer(next);
+    });
+  });
+  reg.update().catch(() => {});
 }
 
 async function load({ quiet = false } = {}) {
@@ -234,6 +266,7 @@ function tableHtml(shown) {
 function openLead(id) {
   state.openId = id;
   state.editing = false;
+  loadNotes(id);
   renderDrawer();
   if (!drawer.open) drawer.showModal();
 }
@@ -251,9 +284,12 @@ function renderDrawer() {
       <button type="button" class="icon-btn" data-action="close" aria-label="Close">${icon('x')}</button>
     </header>
     <div class="drawer-body">
-      <section class="card" id="fu-card" aria-label="Follow-up">${followUpHtml(l)}</section>
       <div id="lead-photo">${photoHtml(l)}</div>
       <section class="card" id="contact-card" aria-label="Contact details">${state.editing ? editHtml(l) : contactHtml(l)}</section>
+      <section class="card" id="fu-card" aria-label="Follow-up">
+        <div id="fu-fields">${followUpHtml(l)}</div>
+        <div id="fu-notes">${notesHtml()}</div>
+      </section>
     </div>`;
   if (l.cardPhotoPath && !state.photos.has(l.cardPhotoPath)) loadPhoto(l.cardPhotoPath);
   if (state.editing) drawer.querySelector('#edit-contact input')?.focus();
@@ -262,8 +298,87 @@ function renderDrawer() {
 // Only the follow-up part, so a save there leaves the rest of the details be.
 function renderFollowUp() {
   const l = state.leads.find((x) => x.id === state.openId);
-  const el = drawer.querySelector('#fu-card');
+  const el = drawer.querySelector('#fu-fields');
   if (l && el) el.innerHTML = followUpHtml(l);
+}
+
+// ---------- follow-up notes ----------
+
+function notesHtml() {
+  const off = state.notesReady ? '' : ' disabled';
+  return `
+        <h3 class="notes-title">Follow-up notes</h3>
+        ${state.notesReady ? '' : `<p class="hint">${esc(NEEDS_DB_UPDATE)}</p>`}
+        <form id="add-note">
+          <label class="field"><textarea name="note" rows="3" aria-label="New follow-up note" placeholder="Log an update: a call, an email, what was agreed..."${off}></textarea></label>
+          <div class="row-buttons"><button type="submit" class="btn primary small"${off}>Add note</button></div>
+          <p class="save-state" id="note-state" aria-live="polite"></p>
+        </form>
+        <div id="note-list">${noteListHtml()}</div>`;
+}
+
+// Newest first, each with who wrote it and when (stamped by the database).
+function noteListHtml() {
+  const notes = state.notes.get(state.openId);
+  if (notes === undefined) return `<p class="muted">${icon('refresh', 'spin small')} Loading notes...</p>`;
+  if (!notes.length) return '<p class="muted">No notes yet.</p>';
+  const me = auth.getAccount()?.id;
+  return `<ol class="log">${[...notes].reverse().map((n) => `
+    <li>
+      <div class="log-meta"><b>${esc(n.author_name || 'Someone')}</b><span>${esc(when(n.created_at))}</span>${n.author === me ? `<button type="button" class="link-btn" data-action="delete-note" data-id="${esc(n.id)}">Delete</button>` : ''}</div>
+      <p>${esc(n.body)}</p>
+    </li>`).join('')}</ol>`;
+}
+
+function renderNoteList() {
+  const el = drawer.querySelector('#note-list');
+  if (el) el.innerHTML = noteListHtml();
+}
+
+function setNoteState(text, bad = false) {
+  const el = drawer.querySelector('#note-state');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle('bad', bad);
+}
+
+// Fetched each time a lead opens, so teammates' notes show up.
+async function loadNotes(id) {
+  try {
+    state.notes.set(id, await state.store.listNotes(id));
+  } catch (err) {
+    if (err.message === NEEDS_DB_UPDATE) {
+      state.notesReady = false;
+      state.notes.set(id, []);
+      const el = drawer.querySelector('#fu-notes');
+      if (el && state.openId === id) el.innerHTML = notesHtml();
+      return;
+    }
+    if (state.openId === id) drawer.querySelector('#note-list').innerHTML = `<p class="bad-text">${icon('alert', 'small')} Notes could not be loaded: ${esc(err.message)}</p>`;
+    return;
+  }
+  if (state.openId === id) renderNoteList();
+}
+
+async function addNote(form) {
+  const l = state.leads.find((x) => x.id === state.openId);
+  const box = form.elements.note;
+  const body = box.value.trim();
+  if (!l || !body) return box.focus();
+  const button = form.querySelector('[type=submit]');
+  button.disabled = true;
+  setNoteState('Saving...');
+  try {
+    const note = await state.store.addNote(l.id, body);
+    state.notes.set(l.id, [...(state.notes.get(l.id) ?? []), note]);
+    box.value = '';
+    setNoteState('Added');
+    renderNoteList();
+  } catch (err) {
+    setNoteState(err instanceof auth.NetworkError ? 'No connection: not saved. Try again when you have signal.' : `Not saved: ${err.message}`, true);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function followUpHtml(l) {
@@ -418,7 +533,8 @@ async function download(btn) {
     const paths = shown.map((l) => l.cardPhotoPath).filter(Boolean);
     const links = paths.length ? await state.store.signedUrls(paths, PHOTO_LINK_DAYS * 86400) : new Map();
     const label = state.filters.event ? `${state.filters.event.replace(/[^\w\s-]/g, '').trim()} ` : '';
-    const result = await shareOrDownload(`InfoCapture leads ${label}${localDay()}.xlsx`, teamWorkbook(shown, links, state.people), XLSX_TYPE);
+    const notes = await state.store.listNotes().catch(() => []); // none before the follow-up notes update
+    const result = await shareOrDownload(`InfoCapture leads ${label}${localDay()}.xlsx`, teamWorkbook(withNotesText(shown, notes), links, state.people), XLSX_TYPE);
     toast(result === 'cancelled' ? 'Cancelled' : `Spreadsheet ready: ${shown.length} lead${shown.length === 1 ? '' : 's'}`);
   } catch (err) {
     toast(err instanceof StoreError || err instanceof auth.NetworkError ? err.message : 'Could not build the spreadsheet.');
@@ -456,6 +572,13 @@ const actions = {
     const on = !el.classList.contains('on');
     el.classList.toggle('on', on);
     el.setAttribute('aria-pressed', on);
+  },
+  async 'delete-note'(el) {
+    if (!confirm('Delete this note? It is removed for the whole team.')) return;
+    await state.store.removeNote(el.dataset.id);
+    const id = state.openId;
+    state.notes.set(id, (state.notes.get(id) ?? []).filter((n) => n.id !== el.dataset.id));
+    renderNoteList();
   },
   potential(el) {
     const l = state.leads.find((x) => x.id === state.openId);
@@ -498,9 +621,17 @@ drawer.addEventListener('click', (e) => {
   if (e.target === drawer) drawer.close();
 });
 drawer.addEventListener('submit', (e) => {
-  if (e.target.id !== 'edit-contact') return;
+  const save = { 'edit-contact': saveContact, 'add-note': addNote }[e.target.id];
+  if (!save) return;
   e.preventDefault();
-  saveContact(e.target).catch((err) => toast(err.message || 'Something went wrong'));
+  save(e.target).catch((err) => toast(err.message || 'Something went wrong'));
+});
+// Cmd+Enter (Ctrl+Enter) adds the note being typed.
+drawer.addEventListener('keydown', (e) => {
+  if (e.target.name === 'note' && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    e.target.form.requestSubmit();
+  }
 });
 drawer.addEventListener('close', () => {
   state.openId = null;
@@ -509,7 +640,9 @@ drawer.addEventListener('close', () => {
 
 // Back on the board after a while: pick up the team's changes.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && state.loaded && !state.pending) load({ quiet: true });
+  if (document.visibilityState !== 'visible' || !state.loaded || state.pending) return;
+  load({ quiet: true });
+  if (state.openId) loadNotes(state.openId);
 });
 
 start().catch((err) => {

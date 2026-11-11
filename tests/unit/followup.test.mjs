@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from '@supabase/supabase-js';
-import { followUpFromRow, followUpToRow, withInitialContact, filterLeads, metrics, STATUSES } from '../../app/js/followup.js';
+import { followUpFromRow, followUpToRow, withInitialContact, withNotesText, filterLeads, metrics, STATUSES } from '../../app/js/followup.js';
 import { SupabaseStore, toRow, NEEDS_DB_UPDATE } from '../../app/js/store.js';
 import { editableSnapshot, mergeTeamEdits } from '../../app/js/fields.js';
 import { FakeSupabase, TEST_URL, TEST_KEY } from '../support/fake-supabase.mjs';
@@ -133,4 +133,32 @@ test('the store reads one contact and saves only the details changed, moving upd
   assert.equal(row.updated_at, at);
   assert.ok(Date.parse(at) > Date.parse('2026-11-03T15:00:00.000Z'));
   await assert.rejects(store.updateContact('44444444-4444-4444-8444-444444444444', { email: 'x' }), /no longer in the team list/);
+});
+
+test('follow-up notes: stamped by the database, deletable only by their author, and in the spreadsheet', async () => {
+  const { fake, store } = await signedIn();
+  const id = '55555555-5555-4555-8555-555555555555';
+  fake.leads.set(id, toRow({ id, firstName: 'Ana' }));
+  const first = await store.addNote(id, 'Left a voicemail');
+  assert.equal(first.author_name, 'Travis Cryan');
+  assert.ok(first.created_at && first.id);
+  await store.addNote(id, 'Call booked for Tuesday');
+  assert.deepEqual((await store.listNotes(id)).map((n) => n.body), ['Left a voicemail', 'Call booked for Tuesday']);
+  assert.equal((await store.listNotes()).length, 2);
+
+  // A teammate's note cannot be deleted by someone else.
+  fake.notes.push({ id: 'n-rick', lead_id: id, body: 'Sent brochure', author: 'someone-else', author_name: 'Rick Christ', created_at: new Date().toISOString() });
+  await assert.rejects(store.removeNote('n-rick'), /Only the person who wrote a note/);
+  await store.removeNote(first.id);
+  assert.deepEqual(fake.notes.map((n) => n.body), ['Call booked for Tuesday', 'Sent brochure']);
+
+  const [lead] = withNotesText([{ id, firstName: 'Ana' }, { id: 'other' }], [
+    { lead_id: id, body: 'Second', author_name: 'Rick Christ', created_at: '2026-11-11T15:00:00Z' },
+    { lead_id: id, body: 'First', author_name: 'Travis Cryan', created_at: '2026-11-10T15:00:00Z' },
+  ]);
+  assert.match(lead.followUpNotes, /^2026-11-1\d \d\d:\d\d Travis Cryan: First\n2026-11-1\d \d\d:\d\d Rick Christ: Second$/);
+
+  fake.notesTable = false;
+  await assert.rejects(store.listNotes(id), (err) => err.message === NEEDS_DB_UPDATE);
+  await assert.rejects(store.addNote(id, 'x'), (err) => err.message === NEEDS_DB_UPDATE);
 });

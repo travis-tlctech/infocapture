@@ -6,6 +6,7 @@
 --                        supabase/add-team-member.sql)
 --   public.leads         one row per captured contact, with its follow-up
 --                        (set on the lead board)
+--   public.lead_notes    the lead board's follow-up notes, a log per lead
 --   card-photos          a private storage bucket for card photos
 -- Only signed-in team members can read or write either. The publishable key
 -- in the app grants nothing on its own.
@@ -124,6 +125,61 @@ $$;
 
 revoke all on function public.team_list() from public, anon;
 grant execute on function public.team_list() to authenticated;
+
+-- ---------- follow-up notes (the lead board) ----------
+
+-- A running log on each lead: what happened and who said what. The database
+-- stamps each entry with its author and time, so neither can be made up.
+-- Team members read every entry, add entries as themselves, and delete only
+-- their own; entries are never edited.
+create table if not exists public.lead_notes (
+  id uuid primary key default gen_random_uuid(),
+  lead_id uuid not null references public.leads (id) on delete cascade,
+  author uuid default auth.uid() references auth.users (id) on delete set null,
+  author_name text not null default '',
+  body text not null check (length(btrim(body)) > 0),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists lead_notes_lead on public.lead_notes (lead_id, created_at);
+
+create or replace function public.stamp_lead_note()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  new.author := (select auth.uid());
+  new.author_name := coalesce((select coalesce(nullif(t.name, ''), t.email) from public.team_members t where t.user_id = new.author), '');
+  new.created_at := now();
+  return new;
+end;
+$$;
+
+revoke all on function public.stamp_lead_note() from public, anon, authenticated;
+
+drop trigger if exists stamp_lead_note on public.lead_notes;
+create trigger stamp_lead_note before insert on public.lead_notes
+  for each row execute function public.stamp_lead_note();
+
+alter table public.lead_notes enable row level security;
+
+drop policy if exists "Team reads notes" on public.lead_notes;
+create policy "Team reads notes" on public.lead_notes
+  for select to authenticated using ((select public.is_team_member()));
+
+drop policy if exists "Team adds notes" on public.lead_notes;
+create policy "Team adds notes" on public.lead_notes
+  for insert to authenticated with check ((select public.is_team_member()));
+
+drop policy if exists "Authors remove their notes" on public.lead_notes;
+create policy "Authors remove their notes" on public.lead_notes
+  for delete to authenticated
+  using (author = (select auth.uid()) and (select public.is_team_member()));
+
+revoke all on public.lead_notes from anon, authenticated;
+grant select, insert, delete on public.lead_notes to authenticated;
 
 -- ---------- card photos ----------
 

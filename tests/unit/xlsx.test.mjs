@@ -61,7 +61,7 @@ test('the team spreadsheet has every column, source labels and photo links', () 
   ));
   const sheet = files.get('xl/worksheets/sheet1.xml');
   for (const c of TEAM_COLUMNS) assert.ok(sheet.includes(`>${c.header}</t>`), c.header);
-  assert.equal(TEAM_COLUMNS.length, COLUMNS.length + 4);
+  assert.equal(TEAM_COLUMNS.length, COLUMNS.length + 5);
   assert.ok(sheet.includes('>High</t>') && sheet.includes('>Initial Email Sent, Call Booked</t>') && sheet.includes('>Travis Cryan</t>') && sheet.includes('>Rick Christ</t>'));
   assert.ok(!sheet.includes('user-gone'), 'an unknown person shows blank, not an ID');
   assert.ok(sheet.includes('>Hot lead, Send info</t>'));
@@ -69,5 +69,5 @@ test('the team spreadsheet has every column, source labels and photo links', () 
   assert.ok(sheet.includes('>+1 646 555 0188</t>'), 'phone numbers stay text, no apostrophe needed');
   assert.ok(sheet.includes('>View photo</t>'));
   assert.equal((files.get('xl/worksheets/_rels/sheet1.xml.rels').match(/TargetMode="External"/g) ?? []).length, 1);
-  assert.ok(files.get('xl/tables/table1.xml').includes(`ref="A1:Y3"`));
+  assert.ok(files.get('xl/tables/table1.xml').includes(`ref="A1:Z3"`));
 });

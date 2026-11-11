@@ -2,6 +2,8 @@
 // the fields, how they map to the database, and the board's filters and
 // metrics. The capture app never sends these fields.
 
+import { excelDate } from './fields.js';
+
 export const POTENTIALS = ['High', 'Medium', 'Low'];
 
 // Several can be ticked at once. Each metric counts its own status only, so
@@ -74,6 +76,17 @@ export function withInitialContact(leads, people = new Map()) {
       otherCaptures: same.filter((x) => x !== l).map((x) => ({ id: x.id, who: who(x), at: x.createdAt })),
     };
   });
+}
+
+// Each lead's follow-up notes as one block of text for the spreadsheet,
+// oldest first: "2026-11-11 14:05 Travis Cryan: Left a voicemail".
+// notes: lead_notes rows.
+export function withNotesText(leads, notes) {
+  const byLead = new Map();
+  for (const n of [...notes].sort((a, b) => a.created_at.localeCompare(b.created_at))) {
+    byLead.set(n.lead_id, [...(byLead.get(n.lead_id) ?? []), `${excelDate(n.created_at)} ${n.author_name || 'Someone'}: ${n.body}`]);
+  }
+  return leads.map((l) => ({ ...l, followUpNotes: (byLead.get(l.id) ?? []).join('\n') }));
 }
 
 // The leads matching the board's filters. f: { event, initial, person,

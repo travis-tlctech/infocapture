@@ -46,6 +46,20 @@ do $$ begin
   -- add-team-member.sql ran twice: the second name wins.
   if (select array_agg(name) from public.team_list()) <> '{"Member One"}' then raise exception 'team_list should be the named member'; end if;
 end $$;
+-- Follow-up notes: the database stamps the author and time, whatever is sent.
+insert into public.lead_notes (lead_id, body, author, author_name, created_at)
+values ('11111111-1111-1111-1111-111111111111', 'Left a voicemail', '00000000-0000-0000-0000-00000000000b', 'Someone else', '2001-01-01');
+do $$ begin
+  if (select author from public.lead_notes) <> '00000000-0000-0000-0000-00000000000a' then raise exception 'note author not stamped'; end if;
+  if (select author_name from public.lead_notes) <> 'Member One' then raise exception 'note author name not stamped'; end if;
+  if (select created_at from public.lead_notes) < now() - interval '1 minute' then raise exception 'note time not stamped'; end if;
+end $$;
+do $$ begin
+  insert into public.lead_notes (lead_id, body) values ('11111111-1111-1111-1111-111111111111', '   ');
+  raise exception 'a blank note was accepted';
+exception when check_violation then null;
+end $$;
+select pg_temp.expect_denied($$update public.lead_notes set body = 'rewritten'$$);
 insert into storage.objects (bucket_id, name) values ('card-photos', '11111111-1111-1111-1111-111111111111.jpg');
 select pg_temp.expect_denied($$insert into storage.objects (bucket_id, name) values ('some-other-bucket', 'x.jpg')$$);
 
@@ -57,7 +71,10 @@ do $$ begin
   if (select count(*) from storage.objects) <> 0 then raise exception 'outsider can see card photos'; end if;
   if (select count(*) from public.team_members) <> 0 then raise exception 'outsider can see the team'; end if;
   if (select count(*) from public.team_list()) <> 0 then raise exception 'outsider can list the team'; end if;
+  if (select count(*) from public.lead_notes) <> 0 then raise exception 'outsider can read notes'; end if;
 end $$;
+select pg_temp.expect_denied($$insert into public.lead_notes (lead_id, body) values ('11111111-1111-1111-1111-111111111111', 'spam')$$);
+delete from public.lead_notes;
 select pg_temp.expect_denied($$insert into public.leads (id, captured_at, updated_at) values (gen_random_uuid(), now(), now())$$);
 select pg_temp.expect_denied($$insert into storage.objects (bucket_id, name) values ('card-photos', 'y.jpg')$$);
 update public.leads set notes = 'hacked', potential = 'Low';
@@ -70,6 +87,7 @@ select set_config('request.jwt.claim.sub', '', false);
 select pg_temp.expect_denied($$select count(*) from public.leads$$);
 select pg_temp.expect_denied($$select public.is_team_member()$$);
 select pg_temp.expect_denied($$select * from public.team_list()$$);
+select pg_temp.expect_denied($$select count(*) from public.lead_notes$$);
 select pg_temp.expect_denied($$insert into public.team_members (user_id, email) values ('00000000-0000-0000-0000-00000000000b', 'x')$$);
 do $$ begin
   if (select count(*) from storage.objects) <> 0 then raise exception 'anon can see card photos'; end if;
@@ -80,6 +98,7 @@ reset role;
 do $$ begin
   if (select notes from public.leads) <> 'edited' then raise exception 'outsider changed a lead'; end if;
   if (select potential from public.leads) <> 'High' then raise exception 'outsider changed the follow-up'; end if;
+  if (select count(*) from public.lead_notes) <> 1 then raise exception 'outsider removed a note'; end if;
   if (select public from storage.buckets where id = 'card-photos') then raise exception 'bucket is public'; end if;
 end $$;
 
@@ -91,6 +110,29 @@ do $$ begin
   if (select count(*) from public.team_members) <> 1 then raise exception 'member should see only their own row'; end if;
 end $$;
 reset role;
+
+-- A teammate cannot delete someone else's note; the author can, and
+-- deleting the lead takes its notes with it.
+insert into public.team_members (user_id, email, name) values ('00000000-0000-0000-0000-00000000000b', 'outsider@example.com', 'Teammate');
+set role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+delete from public.lead_notes;
+insert into public.lead_notes (lead_id, body) values ('11111111-1111-1111-1111-111111111111', 'Sent the brochure');
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', false);
+do $$ begin
+  if (select count(*) from public.lead_notes) <> 2 then raise exception 'a teammate removed someone else''s note'; end if;
+  if (select array_agg(author_name order by author_name) from public.lead_notes) <> '{"Member One",Teammate}' then raise exception 'note authors wrong'; end if;
+end $$;
+delete from public.lead_notes where author_name = 'Member One';
+do $$ begin
+  if (select count(*) from public.lead_notes) <> 1 then raise exception 'author could not remove their own note'; end if;
+end $$;
+delete from public.leads;
+do $$ begin
+  if (select count(*) from public.lead_notes) <> 0 then raise exception 'notes outlived their lead'; end if;
+end $$;
+reset role;
+delete from public.team_members where user_id = '00000000-0000-0000-0000-00000000000b';
 
 -- set-password.sql (run by run.sh) changed the member's password, and only theirs.
 do $$ begin
