@@ -17,7 +17,7 @@ const board = document.getElementById('board');
 const drawer = document.getElementById('lead');
 const PHOTO_LINK_DAYS = 7;
 const FILTERS = 'boardFilters';
-const NO_FILTERS = { event: '', person: '', potential: '', status: '', q: '' };
+const NO_FILTERS = { event: '', initial: '', person: '', potential: '', status: '', q: '' };
 
 // Short labels for the table; the full ones are in the details and filters.
 const SHORT = {
@@ -164,11 +164,13 @@ function render() {
 function renderFilters() {
   const f = state.filters;
   const events = [...new Set(state.leads.map((l) => l.event).filter(Boolean).concat(f.event ? [f.event] : []))].sort();
+  const initials = [...new Set(state.leads.map((l) => l.initialContact).filter(Boolean).concat(f.initial ? [f.initial] : []))].sort();
   const people = [...state.people].sort((a, b) => a[1].localeCompare(b[1]));
   const select = (name, label, options) => `<label><span>${label}</span><select name="${name}">${options.map(([v, t]) => `<option value="${esc(v)}"${v === f[name] ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
   const any = Object.keys(NO_FILTERS).some((k) => f[k]);
   board.querySelector('#filters').innerHTML = `
     ${select('event', 'Event', [['', 'All events'], ...events.map((e) => [e, e])])}
+    ${select('initial', 'Initial contact', [['', 'Anyone'], ...initials.map((n) => [n, n])])}
     ${select('person', 'Follow-up', [['', 'Anyone'], ['-', 'Not assigned'], ...people])}
     ${select('potential', 'Potential', [['', 'Any'], ...POTENTIALS.map((p) => [p, p]), ['-', 'Not set']])}
     ${select('status', 'Status', [['', 'Any'], ...STATUSES.map((s) => [s, s]), ['-', 'No status yet']])}

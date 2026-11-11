@@ -76,12 +76,14 @@ export function withInitialContact(leads, people = new Map()) {
   });
 }
 
-// The leads matching the board's filters. f: { event, person, potential,
-// status, q }; '' means any, and person '-' means nobody yet.
+// The leads matching the board's filters. f: { event, initial, person,
+// potential, status, q }; '' means any, and '-' means not set. initial is
+// an Initial Contact name (see withInitialContact).
 export function filterLeads(leads, f = {}) {
   const q = (f.q ?? '').trim().toLowerCase();
   return leads.filter((l) => {
     if (f.event && l.event !== f.event) return false;
+    if (f.initial && l.initialContact !== f.initial) return false;
     if (f.person === '-' ? l.followUpBy : f.person && l.followUpBy !== f.person) return false;
     if (f.potential === '-' ? l.potential : f.potential && l.potential !== f.potential) return false;
     if (f.status === '-' ? l.followUpStatus.length : f.status && !l.followUpStatus.includes(f.status)) return false;

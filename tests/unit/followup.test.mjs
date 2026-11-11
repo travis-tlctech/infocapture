@@ -47,6 +47,7 @@ test('the board filters by event, person, potential, status and text; "-" means 
   const names = (f) => filterLeads(leads, f).map((l) => l.firstName);
   assert.deepEqual(names({}), ['Ana', 'Bo', 'Cy']);
   assert.deepEqual(names({ event: 'IAEM 2026' }), ['Bo']);
+  assert.deepEqual(filterLeads(leads.map((l, i) => ({ ...l, initialContact: i ? 'Rick Christ' : 'Travis Cryan' })), { initial: 'Rick Christ' }).map((l) => l.firstName), ['Bo', 'Cy']);
   assert.deepEqual(names({ person: 'u1' }), ['Ana']);
   assert.deepEqual(names({ person: '-' }), ['Bo', 'Cy']);
   assert.deepEqual(names({ potential: 'High' }), ['Ana']);

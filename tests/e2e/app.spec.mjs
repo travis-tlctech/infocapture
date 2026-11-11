@@ -560,6 +560,13 @@ test('the lead board: metric tiles, filters, Initial Contact, and follow-up save
   await expect(row('Cy Park').locator('[data-col=followUpStatus]')).toHaveText(/Email 1\s*Call booked/);
   await shot(page, '12-lead-board');
 
+  // Initial contact: Rick met Ana first and captured Cy.
+  await expect(page.locator('#filters select[name=initial] option')).toHaveText(['Anyone', 'Rick Christ', 'Travis Cryan']);
+  await page.locator('#filters select[name=initial]').selectOption('Rick Christ');
+  await expect(tile('total')).toHaveText('3');
+  await expect(row('Bo Chen')).toHaveCount(0);
+  await page.locator('#filters select[name=initial]').selectOption('');
+
   await page.locator('#filters select[name=event]').selectOption('NPPERS 2026');
   await expect(tile('total')).toHaveText('3');
   await expect(tile('call')).toHaveText('0');
